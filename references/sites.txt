@@ -1,0 +1,8 @@
+https://www.analyticsvidhya.com/blog/2017/12/fundamentals-of-deep-learning-introduction-to-lstm/
+https://www.analyticsvidhya.com/blog/2019/01/fundamentals-deep-learning-recurrent-neural-networks-scratch-python/
+
+https://pdfs.semanticscholar.org/c6ff/38b651e46c6dd725f1f663deb53ef77fb778.pdf
+https://imotions.com/blog/neural-oscillations
+https://imotions.com/blog/eeg
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4168519/
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5087423/
