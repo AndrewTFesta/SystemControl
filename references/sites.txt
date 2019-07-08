@@ -6,3 +6,8 @@ https://imotions.com/blog/neural-oscillations
 https://imotions.com/blog/eeg
 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4168519/
 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5087423/
+
+https://indico.io/blog/plotlines/
+
+https://www.amazon.com/Brain-Computer-Interfacing-Introduction-Rajesh-Rao/dp/0521769418
+https://towardsdatascience.com/a-beginners-guide-to-brain-computer-interface-and-convolutional-neural-networks-9f35bd4af948
