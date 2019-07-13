@@ -11,10 +11,11 @@ import socket
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import psutil
 
-from SystemControl import utilities, name, version
+from SystemControl import utilities, name, version, log_path, hub_exe
 
 
 class HubCommunicator:
@@ -23,6 +24,8 @@ class HubCommunicator:
     BUFFER_SIZE = 1024
 
     def __init__(self):
+        self.msg_log = []
+
         self.msg_handlers = {
             'accelerometer': self.accel_resp,
             'command': self.command_resp,
@@ -45,6 +48,7 @@ class HubCommunicator:
         }
 
         if self.is_hub_running():
+            self.add_to_log('ERROR', 'Hub already running')
             print('Found running hub')
             print('Hub killed: %s' % self.kill_hub())
 
@@ -52,13 +56,21 @@ class HubCommunicator:
         self.connect_hub()
         return
 
+    def add_to_log(self, msg_type, msg_str):
+        time_stamp = time.time()
+        self.msg_log.append('[{}] [{}] {}'.format(msg_type, time_stamp, msg_str))
+        return
+
     def start_hub_thread(self):
-        hub_proc = os.path.join('OpenBCIHub', 'OpenBCIHub.exe')
-        if os.path.exists(hub_proc):
-            self.hub_thread = threading.Thread(target=lambda: subprocess.call(hub_proc))
+        # hub_proc = os.path.join('OpenBCIHub', 'OpenBCIHub.exe')
+        # hub_proc = hub_exe
+        if os.path.exists(hub_exe):
+            self.hub_thread = threading.Thread(target=lambda: subprocess.call(hub_exe))
             self.hub_thread.daemon = True
             self.hub_thread.start()
+            self.add_to_log('SUCCESS', 'Hub thread started')
         else:
+            self.add_to_log('ERROR', 'Hub thread failed to start')
             return False
         return True
 
@@ -69,6 +81,7 @@ class HubCommunicator:
                 if 'OpenBCIHub' in each_proc.name():
                     each_proc.kill()
                     self.states['connected'] = False
+                    self.add_to_log('SUCCESS', 'Hub killed')
                     return True
         return False
 
@@ -84,8 +97,9 @@ class HubCommunicator:
                 if 'OpenBCIHub' in each_proc.name():
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as pserr:
+                self.add_to_log('ERROR', 'Unexpected error: {}'.format(str(pserr)))
                 print('Unexpected error')
-                print(pserr)
+                print(str(pserr))
         self.states['connected'] = False
         return False
 
@@ -99,28 +113,40 @@ class HubCommunicator:
         try:
             # verify connections
             data = self.hub_conn.recv(self.BUFFER_SIZE)
-            data_dict = json.loads(data.decode('utf-8'))
+            data_str = data.decode('utf-8')
+            self.add_to_log('RECV', data_str)
+
+            data_dict = json.loads(data_str)
             res_code = data_dict.get('code', None)
             if res_code != 200:
                 return False
+            self.add_to_log('SUCCESS', 'Connected to hub: starting listener')
             self.states['connected'] = True
             self.listen()
 
             self.check_status()
         except ConnectionResetError as ce:
-            print('Failed to connect_hub to hub')
+            self.add_to_log('ERROR', 'Failed to connect to hub: {}'.format(str(ce)))
+            print('Failed to connect to hub')
             print(str(ce))
             return False
         return True
 
     def clean_up(self):
         self.hub_conn.close()
+        log_file_name = os.path.join(log_path, 'msg_log_{}.txt'.format(time.time()))
+        utilities.build_dir_path(Path(log_path))
+        with open(log_file_name, 'w+') as log_file:
+            msg_lines = [each_line.strip() for each_line in self.msg_log]
+            log_file.writelines('\n'.join(msg_lines))
         return
 
     def send_msg(self, msg_dict):
         if self.states['connected']:
-            msg_str = json.dumps(msg_dict)
-            msg_bytes = '{}\r\n'.format(msg_str).encode('utf-8')
+            msg_str = '{}\r\n'.format(json.dumps(msg_dict))
+            self.add_to_log('SENT', msg_str)
+
+            msg_bytes = msg_str.encode('utf-8')
             self.hub_conn.sendall(msg_bytes)
         return
 
@@ -201,15 +227,17 @@ class HubCommunicator:
             try:
                 data = self.hub_conn.recv(self.BUFFER_SIZE)
                 data_str = data.decode('utf-8')
-                print('Message received: %s' % data_str)
+                self.add_to_log('RECV', data_str)
+
+                # print('Message received: %s' % data_str)
                 data_dict = json.loads(data_str)
                 msg_type = data_dict.get('type', None)
                 msg_handler = self.msg_handlers.get(msg_type, None)
                 if msg_handler:
                     handle_ret = msg_handler(data_dict)
                 else:
-                    print('Unable to handle message type: %s' % msg_type)
-            except ConnectionResetError:
+                    self.add_to_log('ERROR', 'Unrecognized message type: {}'.format(msg_type))
+            except (ConnectionResetError, ConnectionAbortedError):
                 print('Connection to hub lost')
                 self.states['connected'] = False
         return
@@ -219,7 +247,7 @@ class HubCommunicator:
         return
 
     def status_resp(self, data_dict):
-        print('Handling status message')
+        # print('Handling status message')
         res_code = data_dict.get('code', None)
         if res_code == 200:
             self.states['connected'] = True
@@ -228,7 +256,7 @@ class HubCommunicator:
         return
 
     def scan_resp(self, data_dict):
-        print('Handling scan message')
+        # print('Handling scan message')
         res_code = data_dict.get('code', None)
         action_type = data_dict.get('action', None)
 
@@ -256,11 +284,12 @@ class HubCommunicator:
             elif res_code == 411:
                 self.states['scan'] = True
         else:
-            print('Unrecognized action type: %s' % action_type)
+            # print()
+            self.add_to_log('ERROR', 'Unrecognized scan action type: {}'.format(action_type))
         return
 
     def protocol_resp(self, data_dict):
-        print('Handling protocol message')
+        # print('Handling protocol message')
         res_code = data_dict.get('code', None)
         action_type = data_dict.get('action', None)
         protocol = data_dict.get('protocol', None)
@@ -279,11 +308,14 @@ class HubCommunicator:
         elif action_type == 'start':
             if res_code == 200:
                 self.states['protocol'] = protocol
+
+                # hub automatically starts scan once protocol is started
+                self.stop_scan()
         elif action_type == 'stop':
             if res_code == 200:
                 self.states['protocol'] = False
         else:
-            print('Unrecognized action type: %s' % action_type)
+            self.add_to_log('ERROR', 'Unrecognized protocol action type: {}'.format(action_type))
         return
 
     def impedance_resp(self, data_dict):
@@ -295,7 +327,7 @@ class HubCommunicator:
         return
 
     def disconnect_resp(self, data_dict):
-        print('Handling disconnect message')
+        # print('Handling disconnect message')
         return
 
     def command_resp(self, data_dict):
