@@ -5,17 +5,17 @@ import argparse
 import inspect
 import time
 
-from SystemControl import utilities
+from SystemControl import utilities, version, name
 from SystemControl.HubCommunicator import HubCommunicator
 
 
-class Application:
+class CliApp:
 
     def __init__(self, hub):
         option_funcs = [
             obj
-            for name, obj in inspect.getmembers(Application)
-            if inspect.isfunction(obj) and name.startswith('select_')
+            for member_name, obj in inspect.getmembers(CliApp)
+            if inspect.isfunction(obj) and member_name.startswith('select_')
         ]
         self.menu_options = {
             str(each_func_idx): each_func
@@ -92,15 +92,14 @@ def main(args):
     :return: None
     """
     if args.version:
-        proj_name, proj_version = utilities.get_version()
-        print('%s: VERSION: %s' % (proj_name, proj_version))
+        print('%s: VERSION: %s' % (name, version))
         return
 
     hub_inst = HubCommunicator()
     print('Hub is running: %s' % hub_inst.hub_thread)
     time.sleep(1)
 
-    app = Application(hub_inst)
+    app = CliApp(hub_inst)
     app.main_loop()
     return
 
@@ -115,7 +114,3 @@ if __name__ == '__main__':
 
     cargs = parser.parse_args()
     main(cargs)
-
-    print('-' * utilities.TERMINAL_COLUMNS)
-    print('Exiting main')
-    print('-' * utilities.TERMINAL_COLUMNS)

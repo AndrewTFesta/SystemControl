@@ -14,7 +14,7 @@ import time
 
 import psutil
 
-from SystemControl import utilities
+from SystemControl import utilities, name, version
 
 
 def kill_hub():
@@ -190,8 +190,7 @@ def main(args):
     :return: None
     """
     if args.version:
-        proj_name, proj_version = utilities.get_version()
-        print('%s: VERSION: %s' % (proj_name, proj_version))
+        print('%s: VERSION: %s' % (name, version))
         return
 
     logging.getLogger().setLevel(logging.DEBUG)
@@ -214,7 +213,3 @@ if __name__ == '__main__':
 
     cargs = parser.parse_args()
     main(cargs)
-
-    print('-' * utilities.TERMINAL_COLUMNS)
-    print('Exiting main')
-    print('-' * utilities.TERMINAL_COLUMNS)

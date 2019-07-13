@@ -9,7 +9,7 @@ import random
 
 import tensorflow as tf
 
-import src.main.utilities as utilities
+from SystemControl import version, name, utilities
 
 
 def calc_entropy(sentence):
@@ -77,8 +77,7 @@ def main(args):
     :return: None
     """
     if args.version:
-        proj_name, proj_version = utilities.get_version()
-        print('%s: VERSION: %s' % (proj_name, proj_version))
+        print('%s: VERSION: %s' % (name, version))
         return
 
     test_shannons_entropy()
@@ -96,7 +95,3 @@ if __name__ == '__main__':
 
     cargs = parser.parse_args()
     main(cargs)
-
-    print('-' * utilities.TERMINAL_COLUMNS)
-    print('Exiting main')
-    print('-' * utilities.TERMINAL_COLUMNS)
