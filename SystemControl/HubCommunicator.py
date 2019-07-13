@@ -17,31 +17,6 @@ import psutil
 from SystemControl import utilities, name, version
 
 
-def kill_hub():
-    proc_list = psutil.process_iter()
-    for each_proc in proc_list:
-        if 'OpenBCIHub' in each_proc.name():
-            each_proc.kill()
-            return True
-    return False
-
-
-def is_hub_running():
-    """
-    Check if there is any running process that contains the given name processName.
-
-    :return:
-    """
-    proc_list = psutil.process_iter()
-    for each_proc in proc_list:
-        try:
-            if 'OpenBCIHub' in each_proc.name():
-                return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-    return None
-
-
 class HubCommunicator:
     HUB_IP = '127.0.0.1'
     HUB_PORT = 10996
@@ -50,9 +25,8 @@ class HubCommunicator:
     def __init__(self):
         self.msg_handlers = {
             'accelerometer': self.accel_resp,
-            'boardType': self.board_type_resp,
             'command': self.command_resp,
-            'connect': self.connect_resp,
+            'connect_hub': self.connect_resp,
             'disconnect': self.disconnect_resp,
             'impedance': self.impedance_resp,
             'protocol': self.protocol_resp,
@@ -62,14 +36,20 @@ class HubCommunicator:
 
         self.hub_thread = None
         self.hub_conn = None
-        self.alive = False
+        self.states = {
+            'hub_connected': False,
+            'protocol': None,
+            'board': None,
+            'board_connected': None,
+            'scan': False
+        }
 
-        if is_hub_running():
+        if self.is_hub_running():
             print('Found running hub')
-            print('Hub killed: %s' % kill_hub())
+            print('Hub killed: %s' % self.kill_hub())
 
         self.start_hub_thread()
-        self.connect()
+        self.connect_hub()
         return
 
     def start_hub_thread(self):
@@ -82,23 +62,55 @@ class HubCommunicator:
             return False
         return True
 
-    def is_connected(self):
-        return self.hub_conn.stillconnected()
+    def kill_hub(self):
+        if self.is_hub_running():
+            proc_list = psutil.process_iter()
+            for each_proc in proc_list:
+                if 'OpenBCIHub' in each_proc.name():
+                    each_proc.kill()
+                    self.states['connected'] = False
+                    return True
+        return False
 
-    def connect(self):
+    def is_hub_running(self):
+        """
+        Check if there is any running process that contains the given name processName.
+
+        :return:
+        """
+        proc_list = psutil.process_iter()
+        for each_proc in proc_list:
+            try:
+                if 'OpenBCIHub' in each_proc.name():
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as pserr:
+                print('Unexpected error')
+                print(pserr)
+        self.states['connected'] = False
+        return False
+
+    def is_hub_connected(self):
+        return self.states['connected']
+
+    def connect_hub(self):
         self.hub_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.hub_conn.connect((self.HUB_IP, self.HUB_PORT))
 
-        # verify connections
-        data = self.hub_conn.recv(self.BUFFER_SIZE)
-        data_dict = json.loads(data.decode('utf-8'))
-        res_code = data_dict.get('code', None)
-        if res_code != 200:
-            return False
-        self.alive = True
-        self.listen()
+        try:
+            # verify connections
+            data = self.hub_conn.recv(self.BUFFER_SIZE)
+            data_dict = json.loads(data.decode('utf-8'))
+            res_code = data_dict.get('code', None)
+            if res_code != 200:
+                return False
+            self.states['connected'] = True
+            self.listen()
 
-        self.get_status()
+            self.check_status()
+        except ConnectionResetError as ce:
+            print('Failed to connect_hub to hub')
+            print(str(ce))
+            return False
         return True
 
     def clean_up(self):
@@ -106,20 +118,76 @@ class HubCommunicator:
         return
 
     def send_msg(self, msg_dict):
-        msg_str = json.dumps(msg_dict)
-        msg_bytes = '{}\r\n'.format(msg_str).encode('utf-8')
-        self.hub_conn.sendall(msg_bytes)
+        if self.states['connected']:
+            msg_str = json.dumps(msg_dict)
+            msg_bytes = '{}\r\n'.format(msg_str).encode('utf-8')
+            self.hub_conn.sendall(msg_bytes)
         return
 
-    def get_status(self):
+    def check_status(self):
         msg_dict = {
             'type': 'status'
         }
         self.send_msg(msg_dict)
         return
 
-    def get_ganglion(self):
+    def set_protocol(self):
+        msg_dict = {
+            'type': 'protocol',
+            'action': 'start',
+            'protocol': 'bled112'
+        }
+        self.send_msg(msg_dict)
+        return
 
+    def get_protocol(self):
+        msg_dict = {
+            'type': 'protocol',
+            'action': 'status',
+            'protocol': 'bled112'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def stop_protocol(self):
+        msg_dict = {
+            'type': 'protocol',
+            'action': 'stop',
+            'protocol': 'bled112'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def start_scan(self):
+        msg_dict = {
+            'type': 'scan',
+            'action': 'start'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def get_scan(self):
+        msg_dict = {
+            'type': 'scan',
+            'action': 'status'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def stop_scan(self):
+        msg_dict = {
+            'type': 'scan',
+            'action': 'stop'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def connect_board(self):
+        # TODO
+        return
+
+    def disconnect_board(self):
+        # TODO
         return
 
     def listen(self):
@@ -129,33 +197,93 @@ class HubCommunicator:
         return
 
     def handle_messages(self):
-        while True:
-            data = self.hub_conn.recv(self.BUFFER_SIZE)
-            data_str = data.decode('utf-8')
-            print('Message received: %s' % data_str)
-            data_dict = json.loads(data_str)
-            msg_type = data_dict.get('type', None)
-            msg_handler = self.msg_handlers.get(msg_type, None)
-            if msg_handler:
-                handle_ret = msg_handler(data_dict)
-            else:
-                print('Unable to handle message type: %s' % msg_type)
+        while self.states['connected']:
+            try:
+                data = self.hub_conn.recv(self.BUFFER_SIZE)
+                data_str = data.decode('utf-8')
+                print('Message received: %s' % data_str)
+                data_dict = json.loads(data_str)
+                msg_type = data_dict.get('type', None)
+                msg_handler = self.msg_handlers.get(msg_type, None)
+                if msg_handler:
+                    handle_ret = msg_handler(data_dict)
+                else:
+                    print('Unable to handle message type: %s' % msg_type)
+            except ConnectionResetError:
+                print('Connection to hub lost')
+                self.states['connected'] = False
         return
 
     def cleanup(self):
-        self.alive = False
+        self.states['connected'] = False
         return
 
     def status_resp(self, data_dict):
         print('Handling status message')
+        res_code = data_dict.get('code', None)
+        if res_code == 200:
+            self.states['connected'] = True
+        else:
+            self.states['connected'] = False
         return
 
     def scan_resp(self, data_dict):
         print('Handling scan message')
+        res_code = data_dict.get('code', None)
+        action_type = data_dict.get('action', None)
+
+        if action_type == 'status':
+            if res_code == 302:
+                self.states['scan'] = True
+            elif res_code == 303:
+                self.states['scan'] = False
+            elif res_code == 304:
+                self.states['scan'] = False
+            elif res_code == 305:
+                self.states['scan'] = False
+        elif action_type == 'start':
+            if res_code == 200:
+                self.states['scan'] = True
+            elif res_code == 412:
+                self.states['scan'] = False
+            elif res_code == 411:
+                self.states['scan'] = True
+        elif action_type == 'stop':
+            if res_code == 200:
+                self.states['scan'] = False
+            elif res_code == 410:
+                self.states['scan'] = False
+            elif res_code == 411:
+                self.states['scan'] = True
+        else:
+            print('Unrecognized action type: %s' % action_type)
         return
 
     def protocol_resp(self, data_dict):
         print('Handling protocol message')
+        res_code = data_dict.get('code', None)
+        action_type = data_dict.get('action', None)
+        protocol = data_dict.get('protocol', None)
+
+        if action_type == 'status':
+            if res_code == 200:
+                self.states['protocol'] = protocol
+            elif res_code == 304:
+                self.states['protocol'] = protocol
+            elif res_code == 305:
+                self.states['protocol'] = False
+            elif res_code == 419:
+                self.states['protocol'] = False
+            elif res_code == 501:
+                self.states['protocol'] = False
+        elif action_type == 'start':
+            if res_code == 200:
+                self.states['protocol'] = protocol
+        elif action_type == 'stop':
+            if res_code == 200:
+                self.states['protocol'] = False
+        else:
+            print('Unrecognized action type: %s' % action_type)
         return
 
     def impedance_resp(self, data_dict):
@@ -163,7 +291,7 @@ class HubCommunicator:
         return
 
     def connect_resp(self, data_dict):
-        print('Handling connect message')
+        print('Handling connect_hub message')
         return
 
     def disconnect_resp(self, data_dict):
@@ -172,10 +300,6 @@ class HubCommunicator:
 
     def command_resp(self, data_dict):
         print('Handling command message')
-        return
-
-    def board_type_resp(self, data_dict):
-        print('Handling board type message')
         return
 
     def accel_resp(self, data_dict):
