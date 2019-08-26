@@ -11,6 +11,7 @@ import socket
 import subprocess
 import threading
 import time
+from json import JSONDecodeError
 from pathlib import Path
 
 import psutil
@@ -29,12 +30,14 @@ class HubCommunicator:
         self.msg_handlers = {
             'accelerometer': self.accel_resp,
             'command': self.command_resp,
-            'connect_hub': self.connect_resp,
+            'connect': self.connect_resp,
             'disconnect': self.disconnect_resp,
             'impedance': self.impedance_resp,
             'protocol': self.protocol_resp,
             'scan': self.scan_resp,
             'status': self.status_resp,
+            'data': self.data_resp,
+            'log': self.log_resp,
         }
 
         self.hub_thread = None
@@ -44,7 +47,9 @@ class HubCommunicator:
             'protocol': None,
             'board': None,
             'board_connected': None,
-            'scan': False
+            'scan': False,
+            'impedance': {0: [], 1: [], 2: [], 3: []},
+            'data': {0: [], 1: [], 2: [], 3: []}
         }
 
         if self.is_hub_running():
@@ -54,6 +59,7 @@ class HubCommunicator:
 
         self.start_hub_thread()
         self.connect_hub()
+        self.set_protocol()
         return
 
     def add_to_log(self, msg_type, msg_str):
@@ -62,8 +68,6 @@ class HubCommunicator:
         return
 
     def start_hub_thread(self):
-        # hub_proc = os.path.join('OpenBCIHub', 'OpenBCIHub.exe')
-        # hub_proc = hub_exe
         if os.path.exists(hub_exe):
             self.hub_thread = threading.Thread(target=lambda: subprocess.call(hub_exe))
             self.hub_thread.daemon = True
@@ -122,8 +126,8 @@ class HubCommunicator:
                 return False
             self.add_to_log('SUCCESS', 'Connected to hub: starting listener')
             self.states['connected'] = True
-            self.listen()
 
+            self.listen()
             self.check_status()
         except ConnectionResetError as ce:
             self.add_to_log('ERROR', 'Failed to connect to hub: {}'.format(str(ce)))
@@ -133,6 +137,8 @@ class HubCommunicator:
         return True
 
     def clean_up(self):
+        self.disconnect_board()
+        self.kill_hub()
         self.hub_conn.close()
         log_file_name = os.path.join(log_path, 'msg_log_{}.txt'.format(time.time()))
         utilities.build_dir_path(Path(log_path))
@@ -209,11 +215,90 @@ class HubCommunicator:
         return
 
     def connect_board(self):
-        # TODO
+        msg_dict = {
+            'type': 'connect',
+            'name': self.states['board']
+        }
+        self.send_msg(msg_dict)
         return
 
     def disconnect_board(self):
-        # TODO
+        msg_dict = {
+            'type': 'disconnect'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def turn_off_channels(self, channel_list):
+        msg_dict = {
+            'type': 'command',
+            'command': channel_list
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def turn_on_channels(self, channel_list):
+        msg_dict = {
+            'type': 'command',
+            'command': channel_list
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def start_impedance(self):
+        msg_dict = {
+            'type': 'impedance',
+            'action': 'start'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def stop_impedance(self):
+        msg_dict = {
+            'type': 'impedance',
+            'action': 'stop'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def start_stream(self):
+        msg_dict = {
+            'type': 'command',
+            'command': 'b'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def stop_stream(self):
+        msg_dict = {
+            'type': 'command',
+            'command': 's'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def enable_accel(self):
+        msg_dict = {
+            'type': 'accelerometer',
+            'action': 'start'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def disable_accel(self):
+        msg_dict = {
+            'type': 'accelerometer',
+            'action': 'start'
+        }
+        self.send_msg(msg_dict)
+        return
+
+    def log_registers(self):
+        msg_dict = {
+            'type': 'command',
+            'command': '?'
+        }
+        self.send_msg(msg_dict)
         return
 
     def listen(self):
@@ -229,25 +314,21 @@ class HubCommunicator:
                 data_str = data.decode('utf-8')
                 self.add_to_log('RECV', data_str)
 
-                # print('Message received: %s' % data_str)
                 data_dict = json.loads(data_str)
                 msg_type = data_dict.get('type', None)
                 msg_handler = self.msg_handlers.get(msg_type, None)
                 if msg_handler:
-                    handle_ret = msg_handler(data_dict)
+                    msg_handler(data_dict)
                 else:
                     self.add_to_log('ERROR', 'Unrecognized message type: {}'.format(msg_type))
-            except (ConnectionResetError, ConnectionAbortedError):
-                print('Connection to hub lost')
+            except (ConnectionResetError, ConnectionAbortedError) as ce:
+                self.add_to_log('ERROR', 'Connection to hub lost: {}'.format(str(ce)))
                 self.states['connected'] = False
-        return
-
-    def cleanup(self):
-        self.states['connected'] = False
+            except JSONDecodeError as jde:
+                self.add_to_log('ERROR', 'Failed to decode message: {}'.format(str(jde)))
         return
 
     def status_resp(self, data_dict):
-        # print('Handling status message')
         res_code = data_dict.get('code', None)
         if res_code == 200:
             self.states['connected'] = True
@@ -256,86 +337,139 @@ class HubCommunicator:
         return
 
     def scan_resp(self, data_dict):
-        # print('Handling scan message')
         res_code = data_dict.get('code', None)
         action_type = data_dict.get('action', None)
+        board_name = data_dict.get('name', None)
 
-        if action_type == 'status':
-            if res_code == 302:
+        if res_code == 200:
+            if action_type == 'start':
                 self.states['scan'] = True
-            elif res_code == 303:
+            elif action_type == 'stop':
                 self.states['scan'] = False
-            elif res_code == 304:
-                self.states['scan'] = False
-            elif res_code == 305:
-                self.states['scan'] = False
-        elif action_type == 'start':
-            if res_code == 200:
+            elif action_type == 'status':
                 self.states['scan'] = True
-            elif res_code == 412:
-                self.states['scan'] = False
-            elif res_code == 411:
-                self.states['scan'] = True
-        elif action_type == 'stop':
-            if res_code == 200:
-                self.states['scan'] = False
-            elif res_code == 410:
-                self.states['scan'] = False
-            elif res_code == 411:
-                self.states['scan'] = True
+            else:
+                self.add_to_log('ERROR', 'Unrecognized scan action type: {}'.format(action_type))
+        elif res_code == 201:
+            self.states['scan'] = True
+            self.states['board'] = board_name
+            self.stop_scan()
+        elif res_code == 302:
+            self.states['scan'] = True
+        elif res_code == 303:
+            self.states['scan'] = False
+        elif res_code == 304:
+            self.states['scan'] = False
+        elif res_code == 305:
+            self.states['scan'] = False
+        elif res_code == 410:
+            self.states['scan'] = False
+        elif res_code == 411:
+            self.states['scan'] = True
+        elif res_code == 412:
+            self.states['scan'] = False
         else:
-            # print()
-            self.add_to_log('ERROR', 'Unrecognized scan action type: {}'.format(action_type))
+            self.add_to_log('ERROR', 'Unrecognized scan result code: {}'.format(res_code))
         return
 
     def protocol_resp(self, data_dict):
-        # print('Handling protocol message')
         res_code = data_dict.get('code', None)
         action_type = data_dict.get('action', None)
         protocol = data_dict.get('protocol', None)
 
-        if action_type == 'status':
-            if res_code == 200:
+        if res_code == 200:
+            if action_type == 'start':
                 self.states['protocol'] = protocol
-            elif res_code == 304:
-                self.states['protocol'] = protocol
-            elif res_code == 305:
-                self.states['protocol'] = False
-            elif res_code == 419:
-                self.states['protocol'] = False
-            elif res_code == 501:
-                self.states['protocol'] = False
-        elif action_type == 'start':
-            if res_code == 200:
-                self.states['protocol'] = protocol
-
                 # hub automatically starts scan once protocol is started
                 self.stop_scan()
-        elif action_type == 'stop':
-            if res_code == 200:
+            elif action_type == 'stop':
                 self.states['protocol'] = False
+            elif action_type == 'status':
+                self.states['protocol'] = protocol
+            else:
+                self.add_to_log('ERROR', 'Unrecognized protocol action type: {}'.format(action_type))
+        elif res_code == 304:
+            self.states['protocol'] = protocol
+        elif res_code == 305:
+            self.states['protocol'] = False
+        elif res_code == 419:
+            self.states['protocol'] = False
+        elif res_code == 501:
+            self.states['protocol'] = False
+            pass
         else:
-            self.add_to_log('ERROR', 'Unrecognized protocol action type: {}'.format(action_type))
+            self.add_to_log('ERROR', 'Unrecognized protocol result code: {}'.format(res_code))
         return
 
     def impedance_resp(self, data_dict):
-        print('Handling impedance message')
+        res_code = data_dict.get('code', None)
+        res_type = data_dict.get('type', None)
+        channel_num = data_dict.get('channelNumber', -1)
+        imp_val = data_dict.get('impedanceValue', -1)
+
+        if channel_num != -1:
+            print('Channel: {} -> impedance: {}'.format(channel_num, imp_val))
         return
 
     def connect_resp(self, data_dict):
-        print('Handling connect_hub message')
+        res_code = data_dict.get('code', None)
+
+        if res_code == 200:
+            self.states['board_connected'] = True
+        elif res_code == 402:
+            self.states['board_connected'] = True
+        elif res_code == 408:
+            self.states['board_connected'] = True
+        else:
+            self.add_to_log('ERROR', 'Unrecognized board_connect result code: {}'.format(res_code))
         return
 
     def disconnect_resp(self, data_dict):
-        # print('Handling disconnect message')
+        res_code = data_dict.get('code', None)
+        if res_code == 200:
+            self.states['board_connected'] = False
+        elif res_code == 401:
+            self.states['board_connected'] = True
+        else:
+            self.add_to_log('ERROR', 'Unrecognized board_connect result code: {}'.format(res_code))
         return
 
     def command_resp(self, data_dict):
-        print('Handling command message')
+        print(data_dict)
+        res_code = data_dict.get('code', None)
+        if res_code == 200:
+            self.states['board_connected'] = False
+        elif res_code == 406:
+            self.add_to_log('ERROR', 'Unable to write to connected device: {}'.format(self.states['board']))
+        elif res_code == 420:
+            self.add_to_log('ERROR', 'Protocol of connected device is not selected: {}:{}'
+                            .format(self.states['board'], self.states['protocol']))
+        else:
+            self.add_to_log('ERROR', 'Unrecognized board_connect result code: {}'.format(res_code))
+        return
+
+    def data_resp(self, data_dict):
+        # print(data_dict)
+
+        sample_count = data_dict.get('sampleNumber', None)
+        channel_data = data_dict.get('channelDataCounts', [])
+        accel_data = data_dict.get('accelDataCounts', [])
+        b_time = data_dict.get('boardTime', [])
+        t_stamp = data_dict.get('timestamp', [])
+        is_valid = data_dict.get('valid', [])
+        res_code = data_dict.get('code', [])
+        res_type = data_dict.get('type', [])
+
+        print('Sample: {} -> Channel data: {}'.format(sample_count, channel_data))
+        return
+
+    def log_resp(self, data_dict):
+        # print(data_dict)
         return
 
     def accel_resp(self, data_dict):
         print('Handling accelerometer message')
+        res_code = data_dict.get('code', None)
         return
 
 

@@ -1,0 +1,16 @@
+[SUCCESS] [1566770769.1498353] Hub thread started
+[RECV] [1566770770.1541913] {"code":200,"type":"status"}
+[SUCCESS] [1566770770.1541913] Connected to hub: starting listener
+[SENT] [1566770770.1551912] {"type": "status"}
+[SENT] [1566770770.1551912] {"type": "protocol", "action": "start", "protocol": "bled112"}
+[RECV] [1566770770.1571956] {"code":200,"type":"status"}
+[RECV] [1566770770.2261934] {"message":"No BLED112 port found","code":419,"type":"protocol"}
+[SENT] [1566770774.0742528] {"type": "connect", "name": null}
+[RECV] [1566770774.0752249] {"code":402,"type":"connect"}
+[SENT] [1566770786.5699465] {"type": "command", "command": "b"}
+[RECV] [1566770786.5709708] {"code":400,"type":"command"}
+[ERROR] [1566770786.5709708] Unrecognized board_connect result code: 400
+[SENT] [1566770793.4395986] {"type": "disconnect"}
+[RECV] [1566770793.4466047] {"code":401,"type":"disconnect"}
+[SUCCESS] [1566770793.5816348] Hub killed
+[ERROR] [1566770793.582598] Connection to hub lost: [WinError 10053] An established connection was aborted by the software in your host machine

@@ -3,9 +3,9 @@
 """
 import argparse
 import inspect
-import time
 
-from SystemControl import utilities, version, name
+import SystemControl
+from SystemControl import utilities
 from SystemControl.HubCommunicator import HubCommunicator
 
 
@@ -15,11 +15,11 @@ class CliApp:
         option_funcs = [
             {
                 'function': obj,
-                'priority': name.split('_')[1],
-                'name': ' '.join(name.split('_')[2:])
+                'priority': member_name.split('_')[1],
+                'name': ' '.join(member_name.split('_')[2:])
             }
-            for name, obj in inspect.getmembers(CliApp)
-            if inspect.isfunction(obj) and name.startswith('select_')
+            for member_name, obj in inspect.getmembers(CliApp)
+            if inspect.isfunction(obj) and member_name.startswith('select_')
         ]
         option_funcs.sort(key=lambda x: x['priority'])
         self.menu_options = [
@@ -36,14 +36,12 @@ class CliApp:
         return
 
     def display_menu(self):
-        print('-----------------')
-        for each_key, each_val in self.hub.states.items():
-            print('%s: %s' % (each_key, each_val))
-        print('-----------------')
+        print('-' * SystemControl.utilities.TERMINAL_COLUMNS)
         for each_option in sorted(self.menu_options, key=lambda x: x['priority']):
             opt_name = each_option['name']
             opt_idx = each_option['index']
             print('%s: %s' % (opt_idx, opt_name))
+        print('-' * SystemControl.utilities.TERMINAL_COLUMNS)
         return
 
     def main_loop(self):
@@ -68,72 +66,52 @@ class CliApp:
         self.exit = True
         return
 
-    def select_1_start(self):
-        if not self.hub.is_hub_running():
-            self.hub.start_hub_thread()
-            self.hub.connect_hub()
-            print('Hub has been started')
-        else:
-            print('Hub is already running')
+    def select_1_scan(self):
+        self.hub.start_scan()
         return
 
-    def select_1_kill(self):
-        kill_success = self.hub.kill_hub()
-        print('Hub has been killed: %s' % kill_success)
-        return
-
-    def select_2_status(self):
-        self.hub.check_status()
-        return
-
-    def select_2_protocol(self):
-        print()
-        print('0: Start protocol: bled112')
-        print('1: Stop current protocol: %s' % self.hub.states['protocol'])
-        print('2: Get current protocol')
-        user_in = input('Enter an option listed above:\n')
-        if user_in == '0':
-            self.hub.set_protocol()
-        elif user_in == '1':
-            self.hub.stop_protocol()
-        elif user_in == '2':
-            self.hub.get_protocol()
-        else:
-            print('Unrecognized input: %s' % user_in)
-        return
-
-    def select_3_scan(self):
-        print()
-        print('0: Start scan: bled112')
-        print('1: Stop current scan: %s' % self.hub.states['scan'])
-        print('2: Get current scan')
-        user_in = input('Enter an option listed above:\n')
-        if user_in == '0':
-            self.hub.start_scan()
-        elif user_in == '1':
-            self.hub.stop_scan()
-        elif user_in == '2':
-            self.hub.get_scan()
-        else:
-            print('Unrecognized input: %s' % user_in)
-        return
-
-    def select_4_connect(self):
-        print('connect')
+    def select_2_connect(self):
         self.hub.connect_board()
         return
 
-    def select_4_disconnect(self):
-        print('disconnect')
-        self.hub.connect_board()
+    def select_2_disconnect(self):
+        self.hub.disconnect_board()
         return
 
-    def select_5_impedance(self):
-        print('imp')
+    def select_3_enable_channels(self):
+        self.hub.turn_on_channels(['!', '@', '#', '$'])
         return
 
-    def select_5_accelerometer(self):
-        print('accel')
+    def select_3_disable_channels(self):
+        self.hub.turn_off_channels(['1', '2', '3', '4'])
+        return
+
+    def select_4_enable_accelerometer(self):
+        self.hub.enable_accel()
+        return
+
+    def select_4_disable_accelerometer(self):
+        self.hub.disable_accel()
+        return
+
+    def select_5_start_impedance_test(self):
+        self.hub.start_impedance()
+        return
+
+    def select_5_stop_impedance_test(self):
+        self.hub.stop_impedance()
+        return
+
+    def select_6_start_stream(self):
+        self.hub.start_stream()
+        return
+
+    def select_6_stop_stream(self):
+        self.hub.stop_stream()
+        return
+
+    def select_7_log_registers(self):
+        self.hub.log_registers()
         return
 
 
@@ -144,13 +122,10 @@ def main(args):
     :return: None
     """
     if args.version:
-        print('%s: VERSION: %s' % (name, version))
+        print('%s: VERSION: %s' % (SystemControl.name, SystemControl.version))
         return
 
     hub_inst = HubCommunicator()
-    print('Hub is running: %s' % hub_inst.hub_thread)
-    time.sleep(1)
-
     app = CliApp(hub_inst)
     app.main_loop()
     return
@@ -160,9 +135,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--version', '-v', action='store_true',
                         help='prints the current version and exits')
-    print('-' * utilities.TERMINAL_COLUMNS)
+    print('-' * SystemControl.utilities.TERMINAL_COLUMNS)
     print(parser.prog)
-    print('-' * utilities.TERMINAL_COLUMNS)
+    print('-' * SystemControl.utilities.TERMINAL_COLUMNS)
 
     cargs = parser.parse_args()
     main(cargs)

@@ -1,0 +1,5 @@
+[ERROR] [1566770828.0018365] Hub already running
+[SUCCESS] [1566770828.5388362] Hub killed
+[SUCCESS] [1566770828.5428429] Hub thread started
+[ERROR] [1566770828.5438585] Failed to connect to hub: [WinError 10054] An existing connection was forcibly closed by the remote host
+[SUCCESS] [1566770853.1412613] Hub killed
