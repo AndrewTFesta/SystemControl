@@ -5,18 +5,17 @@
 """
 import argparse
 import json
-import logging
 import os
 import socket
 import subprocess
 import threading
 import time
 from json import JSONDecodeError
-from pathlib import Path
 
 import psutil
 
-from SystemControl import utilities, name, version, log_path, hub_exe
+from SystemControl import NAME, VERSION, HUB_EXE, TERMINAL_COLUMNS
+from SystemControl.utilities import SystemLog, SystemLogLevel
 
 
 class HubCommunicator:
@@ -25,7 +24,7 @@ class HubCommunicator:
     BUFFER_SIZE = 1024
 
     def __init__(self):
-        self.msg_log = []
+        self.msg_log = SystemLog()
 
         self.msg_handlers = {
             'accelerometer': self.accel_resp,
@@ -53,28 +52,22 @@ class HubCommunicator:
         }
 
         if self.is_hub_running():
-            self.add_to_log('ERROR', 'Hub already running')
-            print('Found running hub')
-            print('Hub killed: %s' % self.kill_hub())
+            self.msg_log.log_message('Hub already running', SystemLogLevel.ERROR)
+            self.msg_log.log_message('Hub killed: {}'.format(self.kill_hub()), SystemLogLevel.ERROR)
 
         self.start_hub_thread()
         self.connect_hub()
         self.set_protocol()
         return
 
-    def add_to_log(self, msg_type, msg_str):
-        time_stamp = time.time()
-        self.msg_log.append('[{}] [{}] {}'.format(msg_type, time_stamp, msg_str))
-        return
-
     def start_hub_thread(self):
-        if os.path.exists(hub_exe):
-            self.hub_thread = threading.Thread(target=lambda: subprocess.call(hub_exe))
+        if os.path.exists(HUB_EXE):
+            self.hub_thread = threading.Thread(target=lambda: subprocess.call(HUB_EXE))
             self.hub_thread.daemon = True
             self.hub_thread.start()
-            self.add_to_log('SUCCESS', 'Hub thread started')
+            self.msg_log.log_message('Hub thread started', SystemLogLevel.NORMAL)
         else:
-            self.add_to_log('ERROR', 'Hub thread failed to start')
+            self.msg_log.log_message('Hub thread failed to start', SystemLogLevel.ERROR)
             return False
         return True
 
@@ -85,7 +78,7 @@ class HubCommunicator:
                 if 'OpenBCIHub' in each_proc.name():
                     each_proc.kill()
                     self.states['connected'] = False
-                    self.add_to_log('SUCCESS', 'Hub killed')
+                    self.msg_log.log_message('Hub killed', SystemLogLevel.NORMAL)
                     return True
         return False
 
@@ -101,9 +94,7 @@ class HubCommunicator:
                 if 'OpenBCIHub' in each_proc.name():
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as pserr:
-                self.add_to_log('ERROR', 'Unexpected error: {}'.format(str(pserr)))
-                print('Unexpected error')
-                print(str(pserr))
+                self.msg_log.log_message('Unexpected error: {}'.format(str(pserr)), SystemLogLevel.ERROR)
         self.states['connected'] = False
         return False
 
@@ -118,19 +109,19 @@ class HubCommunicator:
             # verify connections
             data = self.hub_conn.recv(self.BUFFER_SIZE)
             data_str = data.decode('utf-8')
-            self.add_to_log('RECV', data_str)
+            self.msg_log.log_message(data_str, SystemLogLevel.NORMAL)
 
             data_dict = json.loads(data_str)
             res_code = data_dict.get('code', None)
             if res_code != 200:
                 return False
-            self.add_to_log('SUCCESS', 'Connected to hub: starting listener')
+            self.msg_log.log_message('Connected to hub: starting listener', SystemLogLevel.NORMAL)
             self.states['connected'] = True
 
             self.listen()
             self.check_status()
         except ConnectionResetError as ce:
-            self.add_to_log('ERROR', 'Failed to connect to hub: {}'.format(str(ce)))
+            self.msg_log.log_message('Failed to connect to hub: {}'.format(str(ce)), SystemLogLevel.ERROR)
             print('Failed to connect to hub')
             print(str(ce))
             return False
@@ -140,17 +131,13 @@ class HubCommunicator:
         self.disconnect_board()
         self.kill_hub()
         self.hub_conn.close()
-        log_file_name = os.path.join(log_path, 'msg_log_{}.txt'.format(time.time()))
-        utilities.build_dir_path(Path(log_path))
-        with open(log_file_name, 'w+') as log_file:
-            msg_lines = [each_line.strip() for each_line in self.msg_log]
-            log_file.writelines('\n'.join(msg_lines))
+        self.msg_log.flush_log()
         return
 
     def send_msg(self, msg_dict):
         if self.states['connected']:
             msg_str = '{}\r\n'.format(json.dumps(msg_dict))
-            self.add_to_log('SENT', msg_str)
+            self.msg_log.log_message(msg_str, SystemLogLevel.NORMAL)
 
             msg_bytes = msg_str.encode('utf-8')
             self.hub_conn.sendall(msg_bytes)
@@ -312,7 +299,7 @@ class HubCommunicator:
             try:
                 data = self.hub_conn.recv(self.BUFFER_SIZE)
                 data_str = data.decode('utf-8')
-                self.add_to_log('RECV', data_str)
+                self.msg_log.log_message(data_str, SystemLogLevel.NORMAL)
 
                 data_dict = json.loads(data_str)
                 msg_type = data_dict.get('type', None)
@@ -320,12 +307,12 @@ class HubCommunicator:
                 if msg_handler:
                     msg_handler(data_dict)
                 else:
-                    self.add_to_log('ERROR', 'Unrecognized message type: {}'.format(msg_type))
+                    self.msg_log.log_message('Unrecognized message type: {}'.format(msg_type), SystemLogLevel.ERROR)
             except (ConnectionResetError, ConnectionAbortedError) as ce:
-                self.add_to_log('ERROR', 'Connection to hub lost: {}'.format(str(ce)))
+                self.msg_log.log_message('Connection to hub lost: {}'.format(str(ce)), SystemLogLevel.ERROR)
                 self.states['connected'] = False
             except JSONDecodeError as jde:
-                self.add_to_log('ERROR', 'Failed to decode message: {}'.format(str(jde)))
+                self.msg_log.log_message('Failed to decode message: {}'.format(str(jde)), SystemLogLevel.ERROR)
         return
 
     def status_resp(self, data_dict):
@@ -349,7 +336,7 @@ class HubCommunicator:
             elif action_type == 'status':
                 self.states['scan'] = True
             else:
-                self.add_to_log('ERROR', 'Unrecognized scan action type: {}'.format(action_type))
+                self.msg_log.log_message('Unrecognized scan action type: {}'.format(action_type), SystemLogLevel.ERROR)
         elif res_code == 201:
             self.states['scan'] = True
             self.states['board'] = board_name
@@ -369,7 +356,10 @@ class HubCommunicator:
         elif res_code == 412:
             self.states['scan'] = False
         else:
-            self.add_to_log('ERROR', 'Unrecognized scan result code: {}'.format(res_code))
+            self.msg_log.log_message(
+                'Unrecognized scan result code: {}'.format(res_code),
+                SystemLogLevel.ERROR
+            )
         return
 
     def protocol_resp(self, data_dict):
@@ -387,7 +377,10 @@ class HubCommunicator:
             elif action_type == 'status':
                 self.states['protocol'] = protocol
             else:
-                self.add_to_log('ERROR', 'Unrecognized protocol action type: {}'.format(action_type))
+                self.msg_log.log_message(
+                    'Unrecognized protocol action type: {}'.format(action_type),
+                    SystemLogLevel.ERROR
+                )
         elif res_code == 304:
             self.states['protocol'] = protocol
         elif res_code == 305:
@@ -398,7 +391,10 @@ class HubCommunicator:
             self.states['protocol'] = False
             pass
         else:
-            self.add_to_log('ERROR', 'Unrecognized protocol result code: {}'.format(res_code))
+            self.msg_log.log_message(
+                'Unrecognized protocol result code: {}'.format(res_code),
+                SystemLogLevel.ERROR
+            )
         return
 
     def impedance_resp(self, data_dict):
@@ -408,7 +404,10 @@ class HubCommunicator:
         imp_val = data_dict.get('impedanceValue', -1)
 
         if channel_num != -1:
-            print('Channel: {} -> impedance: {}'.format(channel_num, imp_val))
+            self.msg_log.log_message(
+                'Channel: {} -> impedance: {}'.format(channel_num, imp_val),
+                SystemLogLevel.NORMAL
+            )
         return
 
     def connect_resp(self, data_dict):
@@ -421,7 +420,10 @@ class HubCommunicator:
         elif res_code == 408:
             self.states['board_connected'] = True
         else:
-            self.add_to_log('ERROR', 'Unrecognized board_connect result code: {}'.format(res_code))
+            self.msg_log.log_message(
+                'Unrecognized board_connect result code: {}'.format(res_code),
+                SystemLogLevel.ERROR
+            )
         return
 
     def disconnect_resp(self, data_dict):
@@ -431,26 +433,37 @@ class HubCommunicator:
         elif res_code == 401:
             self.states['board_connected'] = True
         else:
-            self.add_to_log('ERROR', 'Unrecognized board_connect result code: {}'.format(res_code))
+            self.msg_log.log_message(
+                'Unrecognized board_connect result code: {}'.format(res_code),
+                SystemLogLevel.ERROR
+            )
         return
 
     def command_resp(self, data_dict):
-        print(data_dict)
         res_code = data_dict.get('code', None)
         if res_code == 200:
             self.states['board_connected'] = False
         elif res_code == 406:
-            self.add_to_log('ERROR', 'Unable to write to connected device: {}'.format(self.states['board']))
+            self.msg_log.log_message(
+                'Unable to write to connected device: {}'.format(self.states['board']),
+                SystemLogLevel.ERROR
+            )
         elif res_code == 420:
-            self.add_to_log('ERROR', 'Protocol of connected device is not selected: {}:{}'
-                            .format(self.states['board'], self.states['protocol']))
+            self.msg_log.log_message(
+                'Protocol of connected device is not selected: {}:{}'.format(
+                    self.states['board'],
+                    self.states['protocol']
+                ),
+                SystemLogLevel.ERROR
+            )
         else:
-            self.add_to_log('ERROR', 'Unrecognized board_connect result code: {}'.format(res_code))
+            self.msg_log.log_message(
+                'Unrecognized board_connect result code: {}'.format(res_code),
+                SystemLogLevel.ERROR
+            )
         return
 
     def data_resp(self, data_dict):
-        # print(data_dict)
-
         sample_count = data_dict.get('sampleNumber', None)
         channel_data = data_dict.get('channelDataCounts', [])
         accel_data = data_dict.get('accelDataCounts', [])
@@ -460,7 +473,10 @@ class HubCommunicator:
         res_code = data_dict.get('code', [])
         res_type = data_dict.get('type', [])
 
-        print('Sample: {} -> Channel data: {}'.format(sample_count, channel_data))
+        self.msg_log.log_message(
+            'Sample: {} -> Channel data: {}'.format(sample_count, channel_data),
+            SystemLogLevel.NORMAL
+        )
         return
 
     def log_resp(self, data_dict):
@@ -468,8 +484,12 @@ class HubCommunicator:
         return
 
     def accel_resp(self, data_dict):
-        print('Handling accelerometer message')
         res_code = data_dict.get('code', None)
+
+        self.msg_log.log_message(
+            'Handling accelerometer message',
+            SystemLogLevel.NORMAL
+        )
         return
 
 
@@ -480,10 +500,8 @@ def main(args):
     :return: None
     """
     if args.version:
-        print('%s: VERSION: %s' % (name, version))
+        print('%s: VERSION: %s' % (NAME, VERSION))
         return
-
-    logging.getLogger().setLevel(logging.DEBUG)
 
     device = HubCommunicator()
     print('Hub is running: %s' % device.hub_thread)
@@ -497,9 +515,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--version', '-v', action='store_true',
                         help='prints the current version and exits')
-    print('-' * utilities.TERMINAL_COLUMNS)
+    print('-' * TERMINAL_COLUMNS)
     print(parser.prog)
-    print('-' * utilities.TERMINAL_COLUMNS)
+    print('-' * TERMINAL_COLUMNS)
 
     cargs = parser.parse_args()
     main(cargs)
