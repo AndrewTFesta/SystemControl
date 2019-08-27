@@ -122,7 +122,7 @@ def main(args):
     :return: None
     """
     if args.version:
-        print('%s: VERSION: %s' % (SystemControl.name, SystemControl.version))
+        print('%s: VERSION: %s' % (SystemControl.NAME, SystemControl.VERSION))
         return
 
     hub_inst = HubCommunicator()
