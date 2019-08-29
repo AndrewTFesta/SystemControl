@@ -5,13 +5,13 @@
 """
 import unittest
 
-from SystemControl import RESOURCE_PATH, PROJECT_PATH, LOG_PATH, HUB_EXE, SOURCE_PATH, VERSION, NAME
+from SystemControl import RESOURCE_DIR, PROJECT_PATH, LOG_DIR, HUB_EXE, SOURCE_PACKAGE, VERSION, NAME
 
 
 class test_init(unittest.TestCase):
 
     def test_resource_path(self):
-        print('Resource path: {}'.format(RESOURCE_PATH))
+        print('Resource path: {}'.format(RESOURCE_DIR))
         return
 
     def test_project_path(self):
@@ -19,11 +19,11 @@ class test_init(unittest.TestCase):
         return
 
     def test_source_path(self):
-        print('Source path: {}'.format(SOURCE_PATH))
+        print('Source path: {}'.format(SOURCE_PACKAGE))
         return
 
     def test_log_path(self):
-        print('Log path: {}'.format(LOG_PATH))
+        print('Log path: {}'.format(LOG_DIR))
         return
 
     def test_hub_path(self):
