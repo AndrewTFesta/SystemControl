@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from threading import Lock
 
-from SystemControl import LOG_PATH
+from SystemControl import LOG_DIR
 
 
 def build_dir_path(dir_name):
@@ -46,7 +46,7 @@ class SystemLogLevel(Enum):
 
 class SystemLog:
 
-    def __init__(self, log_level: SystemLogLevel = SystemLogLevel.NORMAL, log_location: str = LOG_PATH):
+    def __init__(self, log_level: SystemLogLevel = SystemLogLevel.NORMAL, log_location: str = LOG_DIR):
         self.log_lock = Lock()
         self.log_level = log_level
         self.message_log = []
