@@ -6,18 +6,38 @@
 """
 import os
 import time
-from enum import Enum
 from pathlib import Path
-from threading import Lock
 
-from SystemControl import LOG_DIR
+from IPython import get_ipython
 
 
-def build_dir_path(dir_name):
+def time_function(func: classmethod, args: tuple = ()) -> tuple:
+    """
+    Measures the clock time it takes for the provided function and
+    list of parameters to run.
+
+    If a list of arguments is provided, this list is passed directly to the
+    called function as positional argument. Otherwise, no positional
+    arguments are passed to the function.
+
+    :param func: function to time
+    :param args: (optionals) list of parameters to pass to the function
+    :return: tuple containing the function return value and the time
+    it took for the function to execute
+    """
+    start_time = time.time()
+    func_ret = func(*args)
+    end_time = time.time()
+    elapsed = end_time - start_time
+    return func_ret, elapsed
+
+
+def build_dir_path(dir_name: Path) -> None:
     """
     Builds up the path to the specified directory if it does not exist.
 
-    :param dir_name:
+    :type dir_name: Path
+    :param dir_name: name of directory to create
     :return:
     """
     if not dir_name.exists():
@@ -25,58 +45,71 @@ def build_dir_path(dir_name):
     return
 
 
-class SystemLogLevel(Enum):
-    DEBUG = 0
-    LOW = 10
-    NORMAL = 20
-    MEDIUM = 30
-    HIGH = 40
-    WARNING = 60
-    ERROR = 70
+def locate_files(filename: str, root_dir: str = None) -> list:
+    """
+    Locates all files of the specified name under the supplied
+    root directory. If no root is supplied, the base directory
+    of the project of the currently running script is used.
 
-    def __eq__(self, other):
-        return self.value == other.value
+    :type filename: str
+    :param filename: name of the file to locate
+    :type root_dir: str
+    :param root_dir: (optional) root directory to search from
+    :return: absolute path to the specified files
+    """
+    if not root_dir:
+        root_dir = __file__
 
-    def __ge__(self, other):
-        return self.value >= other.value
+    found_file_list = []
+    for root, dirs, files in os.walk(root_dir):
+        f_to_chk = os.path.join(root, filename)
+        if os.path.isfile(f_to_chk):
+            found_file_list.append(f_to_chk)
+    return found_file_list
 
-    def __le__(self, other):
-        return self.value <= other.value
+
+def in_ipynb() -> bool:
+    """
+    Checks if the environment of the current runtime is an IPython environment.
+    Effectively, this allows for distinguishing if the code is being
+    run in a Jupyter Notebook.
+
+    :return: False if the executing environment is not an
+    IPython environment
+    """
+    try:
+        cfg = get_ipython()
+        if cfg:
+            return True
+        else:
+            return False
+    except NameError:
+        return False
 
 
-class SystemLog:
+def split_paragraph(line_string: str, max_line_length: int = 60) -> list:
+    """
+    TODO split paragraph docs
 
-    def __init__(self, log_level: SystemLogLevel = SystemLogLevel.NORMAL, log_location: str = LOG_DIR):
-        self.log_lock = Lock()
-        self.log_level = log_level
-        self.message_log = []
+    :param line_string:
+    :param max_line_length:
+    :return:
+    """
+    # TODO bug fix: wrap when line does not contain spaces
+    word_list = line_string.split(' ')
+    line_list = []
+    current_line = ''
+    len_counter = 0
+    for each_word in word_list:
+        each_word += ' '
+        if len_counter + len(each_word) > max_line_length:
+            line_list.append(current_line)
+            len_counter = 0
+            current_line = ''
+        current_line += each_word
+        len_counter += len(each_word)
+    if current_line:
+        line_list.append(current_line)
+    line_list = [each_line.strip() for each_line in line_list]
+    return line_list
 
-        time_stamp = time.strftime('%d_%b_%Y_%H_%M_%S', time.gmtime())
-        self.log_fname = os.path.join(log_location, 'msg_log_{}.txt'.format(time_stamp))
-        build_dir_path(Path(log_location))
-        return
-
-    def log_message(self, message_string: str, message_level: SystemLogLevel):
-        assert isinstance(message_level, SystemLogLevel)
-        log_message = self.__format_message(message_level, message_string).strip()
-        if message_level >= self.log_level:
-            print(log_message)
-        self.__add_to_log(log_message)
-        return
-
-    def __add_to_log(self, message_string: str):
-        with self.log_lock:
-            self.message_log.append(message_string)
-        return
-
-    def flush_log(self):
-        with self.log_lock:
-            with open(self.log_fname, 'a+') as log_file:
-                msg_lines = [each_line.strip() for each_line in self.message_log]
-                log_file.writelines('\n'.join(msg_lines))
-        return
-
-    @staticmethod
-    def __format_message(message_type, message_string):
-        time_stamp = time.strftime('%d_%b_%Y_%H_%M_%S', time.gmtime())
-        return '[{}] [{}] {}'.format(message_type, time_stamp, message_string)

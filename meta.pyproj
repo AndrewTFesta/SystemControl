@@ -1,9 +1,0 @@
-{
-    "name": "SystemControl",
-    "version": "0.1",
-    "source_dir": "src/main",
-    "environment": "venv",
-    "resource_dir": "resources",
-    "test_dir": "src/test",
-    "docs_dir": "docs"
-}

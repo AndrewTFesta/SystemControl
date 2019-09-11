@@ -14,8 +14,8 @@ from json import JSONDecodeError
 
 import psutil
 
-from SystemControl import NAME, VERSION, HUB_EXE, TERMINAL_COLUMNS
-from SystemControl.utilities import SystemLog, SystemLogLevel
+from SystemControl import name, version, HUB_EXE, TERMINAL_COLUMNS
+from SystemControl.SystemLog import SystemLog, SystemLogLevel
 
 
 class HubCommunicator:
@@ -52,8 +52,16 @@ class HubCommunicator:
         }
 
         if self.is_hub_running():
-            self.msg_log.log_message('Hub already running', SystemLogLevel.ERROR)
-            self.msg_log.log_message('Hub killed: {}'.format(self.kill_hub()), SystemLogLevel.ERROR)
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string='Hub already running',
+                message_level=SystemLogLevel.ERROR
+            )
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string='Hub killed: {}'.format(self.kill_hub()),
+                message_level=SystemLogLevel.ERROR
+            )
 
         self.start_hub_thread()
         self.connect_hub()
@@ -65,9 +73,17 @@ class HubCommunicator:
             self.hub_thread = threading.Thread(target=lambda: subprocess.call(HUB_EXE))
             self.hub_thread.daemon = True
             self.hub_thread.start()
-            self.msg_log.log_message('Hub thread started', SystemLogLevel.NORMAL)
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string='Hub thread started',
+                message_level=SystemLogLevel.NORMAL
+            )
         else:
-            self.msg_log.log_message('Hub thread failed to start', SystemLogLevel.ERROR)
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string='Hub thread failed to start',
+                message_level=SystemLogLevel.ERROR
+            )
             return False
         return True
 
@@ -78,7 +94,11 @@ class HubCommunicator:
                 if 'OpenBCIHub' in each_proc.name():
                     each_proc.kill()
                     self.states['connected'] = False
-                    self.msg_log.log_message('Hub killed', SystemLogLevel.NORMAL)
+                    self.msg_log.log_message(
+                        message_ident='LOG',
+                        message_string='Hub killed',
+                        message_level=SystemLogLevel.NORMAL
+                    )
                     return True
         return False
 
@@ -94,7 +114,11 @@ class HubCommunicator:
                 if 'OpenBCIHub' in each_proc.name():
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as pserr:
-                self.msg_log.log_message('Unexpected error: {}'.format(str(pserr)), SystemLogLevel.ERROR)
+                self.msg_log.log_message(
+                    message_ident='LOG',
+                    message_string='Unexpected error: {}'.format(str(pserr)),
+                    message_level=SystemLogLevel.ERROR
+                )
         self.states['connected'] = False
         return False
 
@@ -109,19 +133,31 @@ class HubCommunicator:
             # verify connections
             data = self.hub_conn.recv(self.BUFFER_SIZE)
             data_str = data.decode('utf-8')
-            self.msg_log.log_message(data_str, SystemLogLevel.NORMAL)
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string=data_str,
+                message_level=SystemLogLevel.NORMAL
+            )
 
             data_dict = json.loads(data_str)
             res_code = data_dict.get('code', None)
             if res_code != 200:
                 return False
-            self.msg_log.log_message('Connected to hub: starting listener', SystemLogLevel.NORMAL)
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string='Connected to hub: starting listener',
+                message_level=SystemLogLevel.NORMAL
+            )
             self.states['connected'] = True
 
             self.listen()
             self.check_status()
         except ConnectionResetError as ce:
-            self.msg_log.log_message('Failed to connect to hub: {}'.format(str(ce)), SystemLogLevel.ERROR)
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string='Failed to connect to hub: {}'.format(str(ce)),
+                message_level=SystemLogLevel.ERROR
+            )
             print('Failed to connect to hub')
             print(str(ce))
             return False
@@ -137,7 +173,11 @@ class HubCommunicator:
     def send_msg(self, msg_dict):
         if self.states['connected']:
             msg_str = '{}\r\n'.format(json.dumps(msg_dict))
-            self.msg_log.log_message(msg_str, SystemLogLevel.NORMAL)
+            self.msg_log.log_message(
+                message_ident='LOG',
+                message_string=msg_str,
+                message_level=SystemLogLevel.NORMAL
+            )
 
             msg_bytes = msg_str.encode('utf-8')
             self.hub_conn.sendall(msg_bytes)
@@ -299,7 +339,11 @@ class HubCommunicator:
             try:
                 data = self.hub_conn.recv(self.BUFFER_SIZE)
                 data_str = data.decode('utf-8')
-                self.msg_log.log_message(data_str, SystemLogLevel.NORMAL)
+                self.msg_log.log_message(
+                    message_ident='LOG',
+                    message_string=data_str,
+                    message_level=SystemLogLevel.NORMAL
+                )
 
                 data_dict = json.loads(data_str)
                 msg_type = data_dict.get('type', None)
@@ -307,12 +351,24 @@ class HubCommunicator:
                 if msg_handler:
                     msg_handler(data_dict)
                 else:
-                    self.msg_log.log_message('Unrecognized message type: {}'.format(msg_type), SystemLogLevel.ERROR)
+                    self.msg_log.log_message(
+                        message_ident='LOG',
+                        message_string='Unrecognized message type: {}'.format(msg_type),
+                        message_level=SystemLogLevel.ERROR
+                    )
             except (ConnectionResetError, ConnectionAbortedError) as ce:
-                self.msg_log.log_message('Connection to hub lost: {}'.format(str(ce)), SystemLogLevel.ERROR)
+                self.msg_log.log_message(
+                    message_ident='LOG',
+                    message_string='Connection to hub lost: {}'.format(str(ce)),
+                    message_level=SystemLogLevel.ERROR
+                )
                 self.states['connected'] = False
             except JSONDecodeError as jde:
-                self.msg_log.log_message('Failed to decode message: {}'.format(str(jde)), SystemLogLevel.ERROR)
+                self.msg_log.log_message(
+                    message_ident='LOG',
+                    message_string='Failed to decode message: {}'.format(str(jde)),
+                    message_level=SystemLogLevel.ERROR
+                )
         return
 
     def status_resp(self, data_dict):
@@ -336,7 +392,11 @@ class HubCommunicator:
             elif action_type == 'status':
                 self.states['scan'] = True
             else:
-                self.msg_log.log_message('Unrecognized scan action type: {}'.format(action_type), SystemLogLevel.ERROR)
+                self.msg_log.log_message(
+                    message_ident='LOG',
+                    message_string='Unrecognized scan action type: {}'.format(action_type),
+                    message_level=SystemLogLevel.ERROR
+                )
         elif res_code == 201:
             self.states['scan'] = True
             self.states['board'] = board_name
@@ -357,8 +417,9 @@ class HubCommunicator:
             self.states['scan'] = False
         else:
             self.msg_log.log_message(
-                'Unrecognized scan result code: {}'.format(res_code),
-                SystemLogLevel.ERROR
+                message_ident='LOG',
+                message_string='Unrecognized scan result code: {}'.format(res_code),
+                message_level=SystemLogLevel.ERROR
             )
         return
 
@@ -378,8 +439,9 @@ class HubCommunicator:
                 self.states['protocol'] = protocol
             else:
                 self.msg_log.log_message(
-                    'Unrecognized protocol action type: {}'.format(action_type),
-                    SystemLogLevel.ERROR
+                    message_ident='LOG',
+                    message_string='Unrecognized protocol action type: {}'.format(action_type),
+                    message_level=SystemLogLevel.ERROR
                 )
         elif res_code == 304:
             self.states['protocol'] = protocol
@@ -392,8 +454,9 @@ class HubCommunicator:
             pass
         else:
             self.msg_log.log_message(
-                'Unrecognized protocol result code: {}'.format(res_code),
-                SystemLogLevel.ERROR
+                message_ident='LOG',
+                message_string='Unrecognized protocol result code: {}'.format(res_code),
+                message_level=SystemLogLevel.ERROR
             )
         return
 
@@ -405,8 +468,9 @@ class HubCommunicator:
 
         if channel_num != -1:
             self.msg_log.log_message(
-                'Channel: {} -> impedance: {}'.format(channel_num, imp_val),
-                SystemLogLevel.NORMAL
+                message_ident='LOG',
+                message_string='Channel: {} -> impedance: {}'.format(channel_num, imp_val),
+                message_level=SystemLogLevel.NORMAL
             )
         return
 
@@ -421,8 +485,9 @@ class HubCommunicator:
             self.states['board_connected'] = True
         else:
             self.msg_log.log_message(
-                'Unrecognized board_connect result code: {}'.format(res_code),
-                SystemLogLevel.ERROR
+                message_ident='LOG',
+                message_string='Unrecognized board_connect result code: {}'.format(res_code),
+                message_level=SystemLogLevel.ERROR
             )
         return
 
@@ -434,8 +499,9 @@ class HubCommunicator:
             self.states['board_connected'] = True
         else:
             self.msg_log.log_message(
-                'Unrecognized board_connect result code: {}'.format(res_code),
-                SystemLogLevel.ERROR
+                message_ident='LOG',
+                message_string='Unrecognized board_connect result code: {}'.format(res_code),
+                message_level=SystemLogLevel.ERROR
             )
         return
 
@@ -445,21 +511,24 @@ class HubCommunicator:
             self.states['board_connected'] = False
         elif res_code == 406:
             self.msg_log.log_message(
-                'Unable to write to connected device: {}'.format(self.states['board']),
-                SystemLogLevel.ERROR
+                message_ident='LOG',
+                message_string='Unable to write to connected device: {}'.format(self.states['board']),
+                message_level=SystemLogLevel.ERROR
             )
         elif res_code == 420:
             self.msg_log.log_message(
-                'Protocol of connected device is not selected: {}:{}'.format(
+                message_ident='LOG',
+                message_string='Protocol of connected device is not selected: {}:{}'.format(
                     self.states['board'],
                     self.states['protocol']
                 ),
-                SystemLogLevel.ERROR
+                message_level=SystemLogLevel.ERROR
             )
         else:
             self.msg_log.log_message(
-                'Unrecognized board_connect result code: {}'.format(res_code),
-                SystemLogLevel.ERROR
+                message_ident='LOG',
+                message_string='Unrecognized board_connect result code: {}'.format(res_code),
+                message_level=SystemLogLevel.ERROR
             )
         return
 
@@ -474,8 +543,9 @@ class HubCommunicator:
         res_type = data_dict.get('type', [])
 
         self.msg_log.log_message(
-            'Sample: {} -> Channel data: {}'.format(sample_count, channel_data),
-            SystemLogLevel.NORMAL
+            message_ident='LOG',
+            message_string='Sample: {} -> Channel data: {}'.format(sample_count, channel_data),
+            message_level=SystemLogLevel.NORMAL
         )
         return
 
@@ -487,8 +557,9 @@ class HubCommunicator:
         res_code = data_dict.get('code', None)
 
         self.msg_log.log_message(
-            'Handling accelerometer message',
-            SystemLogLevel.NORMAL
+            message_ident='LOG',
+            message_string='Handling accelerometer message',
+            message_level=SystemLogLevel.NORMAL
         )
         return
 
@@ -500,7 +571,7 @@ def main(args):
     :return: None
     """
     if args.version:
-        print('%s: VERSION: %s' % (NAME, VERSION))
+        print('%s: VERSION: %s' % (name, version))
         return
 
     device = HubCommunicator()

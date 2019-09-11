@@ -7,43 +7,31 @@
 
     https://docs.python.org/3/library/unittest.html
 """
-import shutil
 import unittest
-from pathlib import Path
 
-from SystemControl import utilities
+from SystemControl.SystemLog import SystemLog, SystemLogLevel
 
 
 class test_utilities(unittest.TestCase):
 
-    def test_build_dir_path(self):
+    def test_log(self):
         """
-        Attempts to build a path which should not exist from
-        the current directory. It then checks to make sure
-        the directory path was correctly created.
+        https://www.lipsum.com/
 
-        This directory is not a name of the file to be located at
-        the provided location. It is only the path to the directory.
-
-        After running, this test cleans up the created directory path.
-
-        :return: None
+        todo docs
+        :return:
         """
-        path_parts = ['this', 'should', 'not', 'exist']
-        non_exist_dir = Path(TEST_DIR, *path_parts)
-        if non_exist_dir.exists():
-            shutil.rmtree(non_exist_dir)
+        short_message = 'short message'
+        long_message = 'this is a really really long message that should wrap at least several times. Lorem ipsum ' \
+                       'dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et ' \
+                       'dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris' \
+                       'nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in ' \
+                       'voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat ' \
+                       'cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
 
-        # ensures permissions
-        self.assertFalse(non_exist_dir.exists())
-
-        utilities.build_dir_path(non_exist_dir)
-        self.assertTrue(non_exist_dir.exists())
-
-        # clean up created directory and make sure
-        # operation was successful
-        shutil.rmtree(Path(TEST_DIR, path_parts[0]))
-        self.assertFalse(Path(TEST_DIR, path_parts[0]).exists())
+        msg_log = SystemLog(log_level=SystemLogLevel.NORMAL)
+        msg_log.log_message('identifier', short_message, SystemLogLevel.NORMAL)
+        msg_log.log_message('identifier', long_message, SystemLogLevel.NORMAL)
         return
 
 
