@@ -5,7 +5,7 @@
 """
 import unittest
 
-from SystemControl import RESOURCE_DIR, PROJECT_PATH, LOG_DIR, HUB_EXE, SOURCE_PACKAGE, VERSION, NAME
+from SystemControl import RESOURCE_DIR, PROJECT_PATH, LOG_DIR, HUB_EXE, SOURCE_PACKAGE, version, name
 
 
 class test_init(unittest.TestCase):
@@ -31,11 +31,11 @@ class test_init(unittest.TestCase):
         return
 
     def test_name(self):
-        print('Name: {}'.format(NAME))
+        print('Name: {}'.format(name))
         return
 
     def test_version(self):
-        print('Version: {}'.format(VERSION))
+        print('Version: {}'.format(version))
         return
 
 

@@ -7,8 +7,6 @@ import threading
 
 import SystemControl
 
-from SystemControl import utilities
-
 PORT_LIST = {
     12345,
     12346,
@@ -53,9 +51,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--version', '-v', action='store_true',
                         help='prints the current version and exits')
-    print('-' * utilities.TERMINAL_COLUMNS)
-    print(parser.prog)
-    print('-' * utilities.TERMINAL_COLUMNS)
 
     cargs = parser.parse_args()
     main(cargs)
