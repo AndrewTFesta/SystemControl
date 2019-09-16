@@ -1,4 +1,7 @@
 .idea/*
 venv/*
+
 *.pyc
 SystemControl/*.pyc
+
+notebooks/.ipynb_checkpoints/
