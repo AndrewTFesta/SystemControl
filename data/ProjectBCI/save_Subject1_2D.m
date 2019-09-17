@@ -1,5 +1,5 @@
 basePath = "D:\rit\thesis\SystemControl";
-baseDir = fullfile(basePath, "data", "ProjectBCI");
+baseDir = fullfile(basePath, "data", "ProjectBCI", "2D");
 if ~exist(baseDir, 'dir')
     mkdir(baseDir);
 end
@@ -20,8 +20,11 @@ for fieldNameIdx = 1 : length(baseFieldNameList)
     leftName = sprintf("Left%s", baseFieldName);
     lefttArr = eval(leftName);
     
-    saveDataFile(rightName, rightArr, baseDir)
-    saveDataFile(leftName, lefttArr, baseDir)
+    fprintf("Converting: %s\n", rightName);
+    saveDataFile(rightName, rightArr, baseDir);
+    
+    fprintf("Converting: %s\n", leftName);
+    saveDataFile(leftName, lefttArr, baseDir);
 end
 
 function saveDataFile(arrName, arrData, baseDir)

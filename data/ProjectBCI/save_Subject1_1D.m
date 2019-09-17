@@ -1,27 +1,21 @@
 basePath = "D:\rit\thesis\SystemControl";
-baseDir = fullfile(basePath, "data", "ProjectBCI");
+baseDir = fullfile(basePath, "data", "ProjectBCI", "1D");
 if ~exist(baseDir, 'dir')
     mkdir(baseDir);
 end
 addpath(baseDir);
     
-load('Subject1_2D.mat')
-baseFieldNameList = [
-    "Backward1","Backward2","Backward3",...
-    "Forward1","Forward2","Forward3",...
-    "BackwardImagined","ForwardImagined","Leg",...
+load('Subject1_1D.mat')
+filenameList = [
+    "baseline", "left", "right"
 ];
 
-for fieldNameIdx = 1 : length(baseFieldNameList)
-    baseFieldName = baseFieldNameList(fieldNameIdx);
+for filenameIdx = 1 : length(filenameList)
+    dataFname = filenameList(filenameIdx);
+    dataArr = eval(dataFname);
     
-    rightName = sprintf("Right%s", baseFieldName);
-    rightArr = eval(rightName);
-    leftName = sprintf("Left%s", baseFieldName);
-    lefttArr = eval(leftName);
-    
-    saveDataFile(rightName, rightArr, baseDir)
-    saveDataFile(leftName, lefttArr, baseDir)
+    fprintf("Converting: %s\n", dataFname);
+    saveDataFile(dataFname, dataArr, baseDir);
 end
 
 function saveDataFile(arrName, arrData, baseDir)
@@ -32,9 +26,9 @@ function saveDataFile(arrName, arrData, baseDir)
     fprintf(fileId, '%s\n', header);
 
     sizeArr = size(arrData);
-    for rowIdx = 1 : sizeArr(1)
+    for colIdx = 1 : sizeArr(2)
         separator = '';
-        for colIdx = 1 : sizeArr(2)
+        for rowIdx = 1 : sizeArr(1)
             dataVal = arrData(rowIdx, colIdx);
             fprintf(fileId, '%s%d', separator, dataVal);
             separator = ',';
