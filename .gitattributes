@@ -1,6 +1,6 @@
 data/ filter=lfs diff=lfs merge=lfs -text
 logs filter=lfs diff=lfs merge=lfs -text
-
 SystemControl/resources filter=lfs diff=lfs merge=lfs -text
 SystemControl/OpenBCIHub filter=lfs diff=lfs merge=lfs -text
 data/* filter=lfs diff=lfs merge=lfs -text
+data/ProjectBCI filter=lfs diff=lfs merge=lfs -text
