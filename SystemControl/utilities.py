@@ -10,8 +10,10 @@ from pathlib import Path
 
 from IPython import get_ipython
 
+from SystemControl import SOURCE_PACKAGE
 
-def time_function(func: classmethod, args: tuple = ()) -> tuple:
+
+def time_function(func: classmethod, *args, **kwargs) -> tuple:
     """
     Measures the clock time it takes for the provided function and
     list of parameters to run.
@@ -26,7 +28,7 @@ def time_function(func: classmethod, args: tuple = ()) -> tuple:
     it took for the function to execute
     """
     start_time = time.time()
-    func_ret = func(*args)
+    func_ret = func(*args, **kwargs)
     end_time = time.time()
     elapsed = end_time - start_time
     return func_ret, elapsed
@@ -45,7 +47,7 @@ def build_dir_path(dir_name: Path) -> None:
     return
 
 
-def locate_files(filename: str, root_dir: str = None) -> list:
+def find_files_by_name(filename: str, root_dir: str = None) -> list:
     """
     Locates all files of the specified name under the supplied
     root directory. If no root is supplied, the base directory
@@ -55,10 +57,11 @@ def locate_files(filename: str, root_dir: str = None) -> list:
     :param filename: name of the file to locate
     :type root_dir: str
     :param root_dir: (optional) root directory to search from
-    :return: absolute path to the specified files
+    :return: absolute path to the located files
     """
     if not root_dir:
-        root_dir = __file__
+        root_dir = SOURCE_PACKAGE
+        # root_dir = os.path.dirname(__file__)
 
     found_file_list = []
     for root, dirs, files in os.walk(root_dir):
@@ -66,6 +69,34 @@ def locate_files(filename: str, root_dir: str = None) -> list:
         if os.path.isfile(f_to_chk):
             found_file_list.append(f_to_chk)
     return found_file_list
+
+
+def find_files_by_type(file_type: str, root_dir: str = None) -> list:
+    """
+    Locates all files of the specified extension under the supplied
+    root directory. If no root is supplied, the base directory
+    of the project of the currently running script is used.
+
+    :type file_type: str
+    :param file_type:
+    :type root_dir: str
+    :param root_dir: (optional) root directory to search from
+    :return: absolute path to the located files
+    """
+    if not file_type.startswith('.'):
+        file_type = '.{}'.format(file_type)
+
+    if not root_dir:
+        root_dir = __file__
+
+    file_list = []
+    # traverse root directory, and list directories as dirs and files as files
+    for root, dirs, files in os.walk(root_dir):
+        for file in files:
+            filename, file_extension = os.path.splitext(file)
+            if file_extension == file_type:
+                file_list.append(os.path.join(root, file))
+    return file_list
 
 
 def in_ipynb() -> bool:
@@ -112,4 +143,3 @@ def split_paragraph(line_string: str, max_line_length: int = 60) -> list:
         line_list.append(current_line)
     line_list = [each_line.strip() for each_line in line_list]
     return line_list
-

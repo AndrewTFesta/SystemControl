@@ -1,6 +1,6 @@
 import os
 import time
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
 from threading import Lock
 
@@ -19,6 +19,7 @@ class SystemLogLevel(Enum):
     HIGH = 40
     WARNING = 60
     ERROR = 70
+    QUIET = 80
 
     def __eq__(self, other):
         """
@@ -45,6 +46,12 @@ class SystemLogLevel(Enum):
         return self.value <= other.value
 
 
+class SystemLogIdent(Enum):
+    LOG = auto()
+    SND = auto()
+    RCV = auto()
+
+
 class SystemLog:
     """
     todo docs
@@ -65,7 +72,7 @@ class SystemLog:
         build_dir_path(Path(log_location))
         return
 
-    def log_message(self, message_ident: str, message_string: str, message_level: SystemLogLevel):
+    def log_message(self, message_ident: SystemLogIdent, message_string: str, message_level: SystemLogLevel):
         """
         todo docs
         :param message_ident:
@@ -102,8 +109,9 @@ class SystemLog:
         return
 
     @staticmethod
-    def __format_message(message_ident: str, message_string: str, message_level: SystemLogLevel) -> str:
+    def __format_message(message_ident: SystemLogIdent, message_string: str, message_level: SystemLogLevel,
+                         line_length: int = 140) -> str:
         time_stamp = time.strftime('%d_%b_%Y_%H_%M_%S', time.gmtime())
-        wrapped_lines = split_paragraph(message_string, 60)
+        wrapped_lines = split_paragraph(message_string, line_length)
         tab_lines_str = '\t' + '\n\t'.join(wrapped_lines)
-        return '[{}] [{}] [{}]\n{}'.format(message_level.name, message_ident, time_stamp, tab_lines_str)
+        return '[{}] [{}] [{}]\t{}'.format(message_level.name, message_ident.name, time_stamp, tab_lines_str)

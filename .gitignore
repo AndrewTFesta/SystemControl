@@ -1,8 +1,11 @@
 .idea/*
 venv/*
 logs/
+data/
 
 *.pyc
 SystemControl/*.pyc
 
 notebooks/.ipynb_checkpoints/
+
+SystemControl.egg-info/

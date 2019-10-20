@@ -43,8 +43,11 @@ classifiers
 
 import setuptools
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
+with open('README.md', 'r') as desc_file:
+    long_description = desc_file.read()
+
+with open('requirements.txt', 'r') as req_file:
+    requirements_list = req_file.readlines()
 
 setuptools.setup(
     name='SystemControl',
@@ -66,7 +69,9 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    install_requires=[
 
+    install_requires=requirements_list,
+    dependency_links=[
+        'https://github.com/pyvista/pyvista/tarball/master',
     ],
 )
