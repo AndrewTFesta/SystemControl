@@ -2,8 +2,7 @@
 @title
 @description
 """
-
-from SystemControl.OBciPython.HubMachine.SendMessages import *
+from SystemControl.OBciPython.SendMessages import *
 
 
 def select_0_exit(device):
@@ -11,7 +10,8 @@ def select_0_exit(device):
     return
 
 
-def select_0_refresh(device):
+def select_0_refresh_hub(device):
+    device.hub.reset()
     return
 
 

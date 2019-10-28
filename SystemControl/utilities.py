@@ -5,10 +5,17 @@
     Provides a suite of utility and convenience functions.
 """
 import os
+import shutil
+import sys
 import time
+import zipfile
 from pathlib import Path
+from urllib.parse import urlparse
 
+import requests
 from IPython import get_ipython
+from requests import HTTPError
+from tqdm import tqdm
 
 from SystemControl import SOURCE_PACKAGE
 
@@ -105,8 +112,7 @@ def in_ipynb() -> bool:
     Effectively, this allows for distinguishing if the code is being
     run in a Jupyter Notebook.
 
-    :return: False if the executing environment is not an
-    IPython environment
+    :return: False if the executing environment is not an IPython environment
     """
     try:
         cfg = get_ipython()
@@ -120,7 +126,7 @@ def in_ipynb() -> bool:
 
 def split_paragraph(line_string: str, max_line_length: int = 60) -> list:
     """
-    TODO split paragraph docs
+    TODO    docs
 
     :param line_string:
     :param max_line_length:
@@ -143,3 +149,135 @@ def split_paragraph(line_string: str, max_line_length: int = 60) -> list:
         line_list.append(current_line)
     line_list = [each_line.strip() for each_line in line_list]
     return line_list
+
+
+def extract_fname_from_url(url_path):
+    """
+    todo    docs
+
+    :param url_path:
+    :return:
+    """
+    parsed_url = urlparse(url_path)
+    url_path = parsed_url.path
+    fname, ext = os.path.splitext(os.path.basename(url_path))
+    return fname
+
+
+def extract_ext_from_url(url_path):
+    """
+    todo    docs
+
+    :param url_path:
+    :return:
+    """
+    parsed_url = urlparse(url_path)
+    url_path = parsed_url.path
+    fname, ext = os.path.splitext(url_path)
+    return ext
+
+
+def download_large_file(url_path, save_directory, c_size: int = 512,
+                        file_type=None, remote_fname_name=None, force_download=False):
+    """
+    todo    docs
+    todo    generalize to be able to download any zip file to custom directory
+    TODO    seems to generalize to downloading any large file
+    TODO    get file type from header
+    TODO    get file name from header
+
+    :param url_path:
+    :param file_type:
+    :param save_directory:
+    :param c_size:
+    :param remote_fname_name:
+    :param force_download:
+    :return:
+    """
+    try:
+        print('Starting file download...')
+        response = requests.get(url_path, stream=True)
+        headers = response.headers
+
+        if not os.path.exists(save_directory):
+            os.makedirs(save_directory)
+
+        if not remote_fname_name:
+            remote_fname_name = extract_fname_from_url(url_path)
+
+        if not file_type:
+            file_type = extract_ext_from_url(url_path)
+
+        local_fname = os.path.join(save_directory, '{}{}'.format(remote_fname_name, file_type))
+        if os.path.isfile(local_fname):
+            print('File already located in default location:\n{}'.format(local_fname))
+            if not force_download:
+                print('Not re-downloading file')
+                return local_fname
+            else:
+                print('Removing previously downloaded file')
+                os.remove(local_fname)
+
+        content_length = int(headers['content-length'])
+        part_file = os.path.join(save_directory, '{}.part_{}'.format(remote_fname_name, file_type))
+        if os.path.isfile(part_file):
+            os.remove(part_file)
+        print('Total size of file: {} bytes'.format(content_length))
+
+        unit = 'B'
+        unit_scale = True
+
+        pbar_format = 'Downloaded: {percentage:.4f}% {r_bar}'
+        download_progress = tqdm(
+            total=content_length,
+            bar_format=pbar_format,
+            unit=unit,
+            unit_scale=unit_scale,
+            leave=True,
+            file=sys.stdout
+        )
+        with open(part_file, 'wb+') as handle:
+            for chunk in response.iter_content(chunk_size=c_size):
+                if chunk:  # filter out keep-alive new chunks
+                    handle.write(chunk)
+                    download_progress.update(c_size)
+        download_progress.close()
+        print('Time to download: {:.4f} s'.format(download_progress.format_dict['elapsed']))
+        os.rename(part_file, local_fname)
+    except HTTPError as http_err:
+        print(f'HTTP error occurred: {http_err}')
+        local_fname = ''
+    except Exception as err:
+        print(f'Other error occurred: {err}')
+        local_fname = ''
+    return local_fname
+
+
+def unzip_file(zip_filename, save_directory, force_unzip=False, remove_zip=False) -> str:
+    """
+    todo    docs
+
+    :param zip_filename:
+    :param save_directory:
+    :param force_unzip:
+    :param remove_zip:
+    :return:
+    """
+    print('Unzipping zip file')
+    zip_parts = os.path.split(zip_filename)
+    zip_name = os.path.splitext(zip_parts[1])
+    unzip_dir = os.path.join(save_directory, zip_name[0])
+
+    if os.path.exists(unzip_dir):
+        print('Located unzipped directory')
+        if not force_unzip:
+            print('Not re-unzipping')
+            return unzip_dir
+        print('Removing unzipped directory')
+        shutil.rmtree(unzip_dir)
+    with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+        zip_ref.extractall(unzip_dir)
+    if remove_zip:
+        os.remove(zip_filename)  # remove zip file after extracting
+        print('Removed temporary zip file')
+    return unzip_dir

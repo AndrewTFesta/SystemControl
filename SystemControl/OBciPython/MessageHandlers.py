@@ -4,11 +4,13 @@
 """
 
 # TODO  refactor for formatting
+# todo docs
 import inspect
 import sys
 import types
 
-from SystemControl.OBciPython.HubMachine.SendMessages import *
+from SystemControl.OBciPython import HubCommunicator
+from SystemControl.OBciPython.SendMessages import *
 from SystemControl.SystemLog import SystemLogLevel, SystemLogIdent
 
 
@@ -36,8 +38,8 @@ def handle_message_scan(device, data_dict):
         else:
             device.msg_log.log_message(
                 message_ident=SystemLogIdent.LOG,
-                message_string='Unrecognized scan action type: {}'.format(action_type),
-                message_level=SystemLogLevel.ERROR
+                message_level=SystemLogLevel.ERROR,
+                message_string='Unrecognized scan action type: {}'.format(action_type)
             )
     elif res_code == 201:
         device.scan = True
@@ -60,8 +62,8 @@ def handle_message_scan(device, data_dict):
     else:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
-            message_string='Unrecognized scan result code: {}'.format(res_code),
-            message_level=SystemLogLevel.ERROR
+            message_level=SystemLogLevel.ERROR,
+            message_string='Unrecognized scan result code: {}'.format(res_code)
         )
     return
 
@@ -83,8 +85,8 @@ def handle_message_protocol(device, data_dict):
         else:
             device.msg_log.log_message(
                 message_ident=SystemLogIdent.LOG,
-                message_string='Unrecognized protocol action type: {}'.format(action_type),
-                message_level=SystemLogLevel.ERROR
+                message_level=SystemLogLevel.ERROR,
+                message_string='Unrecognized protocol action type: {}'.format(action_type)
             )
     elif res_code == 304:
         device.states['protocol'] = protocol
@@ -98,23 +100,23 @@ def handle_message_protocol(device, data_dict):
     else:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
-            message_string='Unrecognized protocol result code: {}'.format(res_code),
-            message_level=SystemLogLevel.ERROR
+            message_level=SystemLogLevel.ERROR,
+            message_string='Unrecognized protocol result code: {}'.format(res_code)
         )
     return
 
 
 def handle_message_impedance(device, data_dict):
-    res_code = data_dict.get('code', None)
-    res_type = data_dict.get('type', None)
+    # res_code = data_dict.get('code', None)
+    # res_type = data_dict.get('type', None)
     channel_num = data_dict.get('channelNumber', -1)
     imp_val = data_dict.get('impedanceValue', -1)
 
     if channel_num != -1:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
-            message_string='Channel: {} -> impedance: {}'.format(channel_num, imp_val),
-            message_level=SystemLogLevel.NORMAL
+            message_level=SystemLogLevel.NORMAL,
+            message_string='Channel: {} -> impedance: {}'.format(channel_num, imp_val)
         )
     return
 
@@ -131,8 +133,8 @@ def handle_message_connect(device, data_dict):
     else:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
-            message_string='Unrecognized board_connect result code: {}'.format(res_code),
-            message_level=SystemLogLevel.ERROR
+            message_level=SystemLogLevel.ERROR,
+            message_string='Unrecognized board_connect result code: {}'.format(res_code)
         )
     return
 
@@ -146,8 +148,8 @@ def handle_message_disconnect(device, data_dict):
     else:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
-            message_string='Unrecognized board_connect result code: {}'.format(res_code),
-            message_level=SystemLogLevel.ERROR
+            message_level=SystemLogLevel.ERROR,
+            message_string='Unrecognized board_connect result code: {}'.format(res_code)
         )
     return
 
@@ -159,23 +161,23 @@ def handle_message_command(device, data_dict):
     elif res_code == 406:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
-            message_string='Unable to write to connected device: {}'.format(device.states['board']),
-            message_level=SystemLogLevel.ERROR
+            message_level=SystemLogLevel.ERROR,
+            message_string='Unable to write to connected device: {}'.format(device.board_name)
         )
     elif res_code == 420:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
+            message_level=SystemLogLevel.ERROR,
             message_string='Protocol of connected device is not selected: {}:{}'.format(
                 device.board_name,
                 device.protocol
-            ),
-            message_level=SystemLogLevel.ERROR
+            )
         )
     else:
         device.msg_log.log_message(
             message_ident=SystemLogIdent.LOG,
-            message_string='Unrecognized board_connect result code: {}'.format(res_code),
-            message_level=SystemLogLevel.ERROR
+            message_level=SystemLogLevel.ERROR,
+            message_string='Unrecognized board_connect result code: {}'.format(res_code)
         )
     return
 
@@ -183,35 +185,48 @@ def handle_message_command(device, data_dict):
 def handle_message_data(device, data_dict):
     sample_count = data_dict.get('sampleNumber', None)
     channel_data = data_dict.get('channelDataCounts', [])
-    accel_data = data_dict.get('accelDataCounts', [])
+    # accel_data = data_dict.get('accelDataCounts', [])
     b_time = data_dict.get('boardTime', [])
     t_stamp = data_dict.get('timestamp', [])
     is_valid = data_dict.get('valid', [])
-    res_code = data_dict.get('code', [])
-    res_type = data_dict.get('type', [])
+    # res_code = data_dict.get('code', [])
+    # res_type = data_dict.get('type', [])
 
-    device.data[sample_count] = channel_data
+    data_tuple = HubCommunicator.DataEntry(
+        timestamp=t_stamp,
+        board_sample=sample_count,
+        absolute_sample=device.get_sample_count(),
+        board_time=b_time,
+        valid=is_valid,
+        data=channel_data
+    )
+    device.data.append(data_tuple)
+    device.add_sample_count(add_num=1)
 
     device.msg_log.log_message(
         message_ident=SystemLogIdent.LOG,
-        message_string='Sample: {} -> Channel data: {}'.format(sample_count, channel_data),
-        message_level=SystemLogLevel.NORMAL
+        message_level=SystemLogLevel.NORMAL,
+        message_string='Sample: {} -> Channel data: {}'.format(device.get_sample_count(), channel_data)
     )
     return
 
 
 def handle_message_log(device, data_dict):
-    # print(data_dict)
+    res_code = data_dict.get('code', None)
+    device.msg_log.log_message(
+        message_ident=SystemLogIdent.LOG,
+        message_level=SystemLogLevel.NORMAL,
+        message_string=f'Handling log message: {res_code}: Not implemented'
+    )
     return
 
 
 def handle_message_accelerometer(device, data_dict):
     res_code = data_dict.get('code', None)
-
     device.msg_log.log_message(
         message_ident=SystemLogIdent.LOG,
-        message_string='Handling accelerometer message',
-        message_level=SystemLogLevel.NORMAL
+        message_level=SystemLogLevel.NORMAL,
+        message_string=f'Handling accelerometer message: {res_code}: Not implemented'
     )
     return
 

@@ -7,8 +7,8 @@ import threading
 from time import sleep
 
 import SystemControl
-from SystemControl.OBciPython.HubMachine import MenuFunctions
-from SystemControl.OBciPython.HubMachine.HubCommunicator import HubCommunicator
+from SystemControl.OBciPython import MenuFunctions
+from SystemControl.OBciPython.HubCommunicator import HubCommunicator
 from SystemControl.SystemLog import SystemLogLevel
 
 
@@ -90,10 +90,10 @@ def main(args):
     :return: None
     """
     if args.version:
-        print('{}: VERSION: {}'.format(SystemControl.name, SystemControl.version))
+        print(f'{SystemControl.name}: VERSION: {SystemControl.version}')
         return
 
-    hub_inst = HubCommunicator(SystemLogLevel.QUIET)
+    hub_inst = HubCommunicator(SystemLogLevel.NORMAL)
     app = DataAcqCli(hub_inst)
     app.main_loop()
     return

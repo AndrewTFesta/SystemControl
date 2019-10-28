@@ -6,8 +6,8 @@ import inspect
 import tkinter as tk
 
 import SystemControl
-from SystemControl.OBciPython.HubMachine import MenuFunctions
-from SystemControl.OBciPython.HubMachine.HubCommunicator import HubCommunicator
+from SystemControl.OBciPython import MenuFunctions
+from SystemControl.OBciPython.HubCommunicator import HubCommunicator
 from SystemControl.SystemLog import SystemLogLevel, SystemLogIdent
 
 
