@@ -15,10 +15,6 @@ OBCI_PYTHON_DIR = os.path.join(SOURCE_PACKAGE, 'OBciPython',)
 OPENBCI_HUB_NAME = 'OpenBCIHub.exe'
 HUB_EXE = os.path.join(OBCI_PYTHON_DIR, 'OpenBCIHub', OPENBCI_HUB_NAME)
 
-CHROME_DRIVER_DIR = os.path.join(SOURCE_PACKAGE, 'chromedriver')
-CHROME_DRIVER_NAME = 'chromedriver.exe'
-CHROME_DRIVER_EXE = os.path.join(CHROME_DRIVER_DIR, CHROME_DRIVER_NAME)
-
 LOG_DIR = os.path.join(PROJECT_PATH, 'logs')
 DATA_DIR = os.path.join(PROJECT_PATH, 'data')
 

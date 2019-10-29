@@ -32,16 +32,6 @@ from SystemControl.DataSource import SqlDb
 from SystemControl.DataSource.DataSource import DataSource
 
 
-class PhysioEntry:
-
-    def __init__(self, fname, subject, run, data):
-        self.fname = fname
-        self.subject = subject
-        self.run = run
-        self.data = data
-        return
-
-
 def int_to_subject_str(subject_int):
     return f'S{subject_int:03d}'
 
@@ -56,8 +46,18 @@ class PhysioEvent(Enum):
     T2 = 2
 
 
-class PhysioDataSource(DataSource):
+class PhysioEntry:
 
+    def __init__(self, fname, subject, run, data):
+        # TODO make compatible with storing in sql
+        self.fname = fname
+        self.subject = subject
+        self.run = run
+        self.data = data
+        return
+
+
+class PhysioDataSource(DataSource):
     SUBJECT_NUMS = list(range(1, 109))
     RUN_NUMS = list(range(1, 14))
     PHYSIO_TABLE_NAME = 'physio_data'
@@ -69,6 +69,10 @@ class PhysioDataSource(DataSource):
 
     def __str__(self):
         return 'Physio'
+
+    @staticmethod
+    def validate_subject_num(subject_num) -> bool:
+        return subject_num in PhysioDataSource.SUBJECT_NUMS
 
     @staticmethod
     def clean_raw_edf(raw_edf):
