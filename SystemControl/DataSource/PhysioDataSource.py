@@ -21,11 +21,9 @@
             the right fist (in runs 3, 4, 7, 8, 11, and 12)
             both feet (in runs 5, 6, 9, 10, 13, and 14)
 """
-import random
-from enum import Enum, auto
+from enum import Enum
 
 import mne
-import numpy as np
 from mne.io import read_raw_edf
 from mne.io.edf.edf import RawEDF as RawEDF
 

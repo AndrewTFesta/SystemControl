@@ -11,7 +11,7 @@ from bokeh.plotting import figure
 from bokeh.server.server import Server
 from mne import events_from_annotations
 
-from SystemControl import DATABASE_URL, DataTransformer
+from SystemControl import DATABASE_URL
 from SystemControl.DataSource import SqlDb, DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, PhysioEvent
 
@@ -21,9 +21,8 @@ class EegVisualizer:
     MAX_HEIGHT = 800
     POINTS_PRE_UPDATE = 1
 
-    def __init__(self, data_source: DataSource, data_transformer: DataTransformer, subject: int = 1):
+    def __init__(self, data_source: DataSource, subject: int = 1):
         self.data_source = data_source
-        self.data_transformer = data_transformer
         self.subject = subject
 
         self.raw_data = self.data_source.get_mi_right_left(self.subject)
@@ -38,7 +37,7 @@ class EegVisualizer:
 
         self.x_len = int(self.sfreq)
         self.channel_names = self.data_source.get_channel_names(self.raw_data)
-        # todo set based on num signals
+
         self.max_abs_val = 20E-5
 
         self.figure = None
@@ -180,9 +179,8 @@ def main():
     db_path = DATABASE_URL
     database = SqlDb.SqlDb(db_path)
     physio_ds = PhysioDataSource(database)
-    data_transformer = DataTransformer.DataTransformer()
 
-    eeg_visualizer = EegVisualizer(physio_ds, data_transformer, subject)
+    eeg_visualizer = EegVisualizer(physio_ds, subject)
     eeg_visualizer.run()
     return
 

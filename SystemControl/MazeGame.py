@@ -1,3 +1,7 @@
+"""
+@title
+@description
+"""
 import pygame
 import pygame.locals
 
@@ -13,6 +17,7 @@ def load_tile_table(filename, width, height):
             rect = (tile_x * width, tile_y * height, width, height)
             line.append(image.subsurface(rect))
     return tile_table
+
 
 class MazeGame:
     DISPLAY_WIDTH = 400
@@ -34,6 +39,7 @@ class MazeGame:
                     self.running = False
         pygame.quit()
         return
+
 
 def main():
     maze_game = MazeGame()

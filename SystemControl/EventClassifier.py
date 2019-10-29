@@ -2,33 +2,87 @@
 @title
 @description
 """
+import os
+import sys
+from concurrent.futures.thread import ThreadPoolExecutor
 
+import matplotlib.pyplot as plt
 import numpy as np
+import multiprocessing as mp
+from bokeh.io import export_png
+from bokeh.plotting import figure
 from mne import events_from_annotations
+from scipy.interpolate import interp1d
+from selenium import webdriver
+from tqdm import tqdm
 
-from SystemControl import DataTransformer, DATABASE_URL
+from SystemControl import DATABASE_URL, DATA_DIR, CHROME_DRIVER_EXE
 from SystemControl.DataSource import DataSource, SqlDb
-from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
+from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, int_to_subject_str
 
 
 class EventClassifier:
+    CHROME_DRIVER = None
 
-    def __init__(self, data_source: DataSource, data_transformer: DataTransformer, subject: int = 1):
+    def __init__(self, data_source: DataSource, subject: int = 1, spacing: int = 50,
+                 start_padding: float = 0.1, end_padding: float = 0.1, duration: float = 0.5):
         self.data_source = data_source
-        self.data_transformer = data_transformer
+
+        self._raw_data = None
+        self._data = None
+        self._events = None
+        self._data_slices = None
+        self._image_slices = None
+        self.__init_data()
 
         self.subject = subject
+        self.spacing = spacing
 
-        self.raw_data = self.data_source.get_mi_right_left(self.subject)
-        self.data = self.data_source.get_data(self.raw_data)
+        self.start_padding = start_padding
+        self.end_padding = end_padding
+        self.duration = duration
 
-        self.annotations = self.data_source.get_annotations(self.raw_data)
-        self.events = events_from_annotations(self.raw_data)
+        self.color_palette = 'Spectral11'
+        return
+
+    def __init_data(self):
+        self._raw_data = self.data_source.get_mi_right_left(self.subject)
+        self._data = self.data_source.get_data(self._raw_data)
+        self._events = events_from_annotations(self._raw_data)
+
+        # todo combine lists to not duplicate info
+        self._data_slices = {}  # todo make into list of dicts
+        self._image_slices = []
+        return
+
+    def set_data_source(self, data_source):
+        self.data_source = data_source
+        self.__init_data()
+        return
+
+    def set_subject(self, subject):
+        self.subject = subject
+        return
+
+    def set_spacing(self, spacing):
+        self.spacing = spacing
+        return
+
+    def set_start_padding(self, start_padding):
+        self.start_padding = start_padding
+        return
+
+    def set_end_padding(self, end_padding):
+        self.end_padding = end_padding
+        return
+
+    def set_duration(self, duration):
+        self.duration = duration
         return
 
     @staticmethod
     def event_from_id(event_dict, event_id):
-        for evt_key, evt_val in event_dict.items():  # for name, age in dictionary.iteritems():  (for Python 2.x)
+        for evt_key, evt_val in event_dict.items():
             if evt_val == event_id:
                 evt_str = evt_key
                 break
@@ -36,22 +90,132 @@ class EventClassifier:
             evt_str = None
         return evt_str
 
-    def build_classification_dataset(self):
-        # todo  create images from data slices
-        start_padding = 0.1
-        end_padding = 0.1
-        event_duration = 0.5
-        freq = self.raw_data.info['sfreq']
+    @staticmethod
+    def __update_pbar_callback(future):
+        future_arg = future.arg
+        future_arg.update(1)
+        return
 
-        num_start_samples_padding = int(freq * start_padding)
-        num_end_samples_padding = int(freq * end_padding)
-        num_samples_per_event = int(freq * event_duration)
+    def save_images(self):
+        # pbar = tqdm(total=len(self.image_slices), desc=f'{self.subject}: Saving images', file=sys.stdout)
+        # with ThreadPoolExecutor(max_workers=50) as executor:
+        #     for each_entry in self.image_slices:
+        #         future = executor.submit(self.save_image_slice, each_entry)
+        #         future.arg = pbar
+        #         future.add_done_callback(self.__update_pbar_callback)
+        # pbar.close()
+        for each_entry in tqdm(self._image_slices, desc=f'{self.subject}: Saving images:', file=sys.stdout):
+            self.save_image_slice(each_entry)
+        return
 
-        event_list = self.events[0]
-        event_types = self.events[1]
-        d_transpose = np.transpose(self.data)
-        data_slice_list = []
-        for event_idx, each_event in enumerate(event_list):
+    # noinspection PyTypeChecker
+    def save_image_slice(self, slice_entry):
+        slice_data = slice_entry['image']
+        interp_type = slice_entry['interp']
+        event_type = slice_entry['type']
+
+        save_dir = os.path.join(
+            DATA_DIR, 'heatmaps', f'{self.data_source.__str__()}',
+            int_to_subject_str(self.subject), f'spacing_{self.spacing}', f'interp_{interp_type}', f'event_{event_type}'
+        )
+        if not os.path.isdir(save_dir):
+            os.makedirs(save_dir)
+        spd_str = str(int(self.start_padding * 1000))
+        epd_str = str(int(self.end_padding * 1000))
+        dur_str = str(int(self.duration * 1000))
+        out_fname = os.path.join(
+            save_dir,
+            f'img_spad_{spd_str}_epad_{epd_str}_dur_{dur_str}.png'
+        )
+        img_shape = slice_data.shape
+
+        fig = figure(x_range=(0, img_shape[0]), y_range=(0, img_shape[1]))
+        fig.image(
+            image=[slice_data],
+            x=0, y=0,
+            dw=img_shape[0], dh=img_shape[1],
+            palette=self.color_palette
+        )
+        fig.axis.visible = False
+        fig.toolbar.logo = None
+        fig.toolbar_location = None
+
+        export_png(fig, filename=out_fname, webdriver=CHROME_DRIVER)
+        return
+
+    def build_all_images(self):
+        for slice_type, slice_list in self._data_slices.items():
+            for each_slice in tqdm(slice_list, desc=f'{self.subject}: Building images: {slice_type}', file=sys.stdout):
+                self.slice2img(slice_type, each_slice)
+        return
+
+    def slice2img(self, slice_type: str, data_slice: np.ndarray):
+        num_cols = (data_slice.shape[1] + 1) * self.spacing + data_slice.shape[1]
+        lin_spaced_slice = []
+        quad_spaced_slice = []
+        cub_spaced_slice = []
+        for each_row in data_slice:
+            each_row = np.insert(each_row, 0, values=[0])
+            each_row = np.append(each_row, 0)
+
+            x = np.linspace(0, each_row.shape[0], num=each_row.shape[0], endpoint=False)
+            xnew = np.linspace(0, each_row.shape[0] - 1, num=num_cols, endpoint=True)
+
+            line_interp = interp1d(x, each_row, fill_value='extrapolate', kind='linear')
+            quad_interp = interp1d(x, each_row, fill_value='extrapolate', kind='quadratic')
+            cub_interp = interp1d(x, each_row, fill_value='extrapolate', kind='cubic')
+
+            new_lin_y = line_interp(xnew)
+            new_quad_y = quad_interp(xnew)
+            new_cub_y = cub_interp(xnew)
+
+            lin_spaced_slice.append(new_lin_y)
+            quad_spaced_slice.append(new_quad_y)
+            cub_spaced_slice.append(new_cub_y)
+
+            # self.plot_slices(x, each_row, xnew, new_lin_y, new_quad_y, new_cub_y)
+        self.prepare_slice(lin_spaced_slice, slice_type, 'linear')
+        self.prepare_slice(quad_spaced_slice, slice_type, 'quad')
+        self.prepare_slice(cub_spaced_slice, slice_type, 'cub')
+        return
+
+    @staticmethod
+    def plot_slices(x_vals, row_vals, xnew, liny, quady, cuby):
+        plt.plot(x_vals, row_vals, 'o')
+        plt.plot(xnew, liny, '-')
+        plt.plot(xnew, quady, '--')
+        plt.plot(xnew, cuby, ':')
+
+        plt.legend(['data', 'linear', 'quadratic', 'cubic'], loc='best')
+        return
+
+    def prepare_slice(self, np_slice, slice_type, interp):
+        np_slice = np.array(np_slice)
+        min_val = np.amin(np_slice)
+        np_slice = np_slice + abs(min_val)
+        max_val = np.amax(np_slice)
+        np_slice = np_slice / max_val
+        np_slice = np_slice.astype(np.float32)
+        np_slice = np.transpose(np_slice)
+
+        self._image_slices.append({
+            'image': np_slice,
+            'type': slice_type,
+            'interp': interp
+        })
+        return
+
+    def slice_data(self):
+        freq = self._raw_data.info['sfreq']
+
+        num_start_samples_padding = int(freq * self.start_padding)
+        num_end_samples_padding = int(freq * self.end_padding)
+        num_samples_per_event = int(freq * self.duration)
+
+        event_list = self._events[0]
+        event_types = self._events[1]
+        d_transpose = np.transpose(self._data)
+        for event_idx, each_event in enumerate(tqdm(event_list, desc=f'{self.subject}: Slicing data', file=sys.stdout)):
             sample_idx = each_event[0]
             event_id = each_event[2]
             event_str = EventClassifier.event_from_id(event_types, event_id)
@@ -62,12 +226,14 @@ class EventClassifier:
             # only add to slice_list if data range is valid (non negative and not beyond bounds of d_transpose
             if start_slice_idx >= 0 and end_slice_idx < len(d_transpose):
                 data_slice = d_transpose[start_slice_idx:end_slice_idx]
-                data_slice_list.append(data_slice)
-                print(f'{start_slice_idx}:{end_slice_idx}, Event: {event_str}, Data points: {data_slice.shape}')
-            else:
-                print(f'Data slice falls outside valid bounds ({0}:{len(d_transpose)}): '
-                      f'({start_slice_idx}:{end_slice_idx})')
-        return data_slice_list
+                if event_str not in self._data_slices:
+                    self._data_slices[event_str] = []
+                self._data_slices[event_str].append(data_slice)
+            #     print(f'{start_slice_idx}:{end_slice_idx}, Event: {event_str}, Data points: {data_slice.shape}')
+            # else:
+            #     print(f'Data slice falls outside valid bounds ({0}:{len(d_transpose)}): '
+            #           f'({start_slice_idx}:{end_slice_idx})')
+        return
 
     def train(self):
         # todo
@@ -77,37 +243,41 @@ class EventClassifier:
         # todo
         return
 
-    def next_event_vals(self):
-        event_onset = self.events[0]
-        print(event_onset)
-        return
-
 
 def main():
-    subject = 1
+    # todo parallelize - slice_data()
+    # todo parallelize - build_all_images()
+    # todo parallelize - save_images()
+    row_spacing: int = 100
+    start_padding: float = 0.1
+    end_padding: float = 0.1
+    duration: float = 0.5
 
     db_path = DATABASE_URL
     database = SqlDb.SqlDb(db_path)
     physio_data_source = PhysioDataSource(database)
-    data_transformer = DataTransformer.DataTransformer()
 
-    event_classifier = EventClassifier(physio_data_source, data_transformer, subject)
-    event_classifier.build_classification_dataset()
+    for each_subject in PhysioDataSource.SUBJECT_NUMS:
+        try:
+            event_classifier = EventClassifier(
+                physio_data_source, subject=each_subject, spacing=row_spacing,
+                start_padding=start_padding, end_padding=end_padding, duration=duration
+            )
+            event_classifier.slice_data()
+            event_classifier.build_all_images()
+            event_classifier.save_images()
+        except Exception as e:
+            print(str(e))
     return
 
 
 if __name__ == '__main__':
+    options = webdriver.ChromeOptions()
+    options.add_argument('headless')
+    CHROME_DRIVER = webdriver.Chrome(CHROME_DRIVER_EXE, options=options)
     main()
 
 ########################################
-
-# # Read epochs (train will be done only between 1 and 2s)
-# # Testing will be done with a running classifier
-# epochs = Epochs(raw, events, event_id, tmin, tmax, proj=True, picks=picks, baseline=None, preload=True)
-# epochs_train = epochs.copy().crop(tmin=1., tmax=2.)
-# labels = epochs.events[:, -1] - 2
-#
-# ########################################
 #
 # # Define a monte-carlo cross-validation generator (reduce variance):
 # scores = []
@@ -173,3 +343,4 @@ if __name__ == '__main__':
 # plt.legend(loc='lower right')
 # plt.show()
 # return edf_data_list
+#

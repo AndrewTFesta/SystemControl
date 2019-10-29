@@ -1,3 +1,4 @@
+opencv-python
 bokeh
 appJar
 bluetool
@@ -41,3 +42,5 @@ sip
 statsmodels
 tqdm
 xlrd
+selenium
+pillow

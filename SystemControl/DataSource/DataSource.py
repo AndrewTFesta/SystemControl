@@ -2,8 +2,7 @@
 @title
 @description
 """
-import threading
-
+import mne
 from mne.io.edf.edf import RawEDF
 
 from SystemControl import DATABASE_URL
@@ -11,8 +10,7 @@ from SystemControl.DataSource import SqlDb
 
 
 class EventAnnotation:
-    # TODO  figure out data that should be stored
-    #       look at MNE
+    # TODO  figure out data that should be stored - look at MNE
 
     def __init__(self, time_stamp: int, utc_offset: float, event_id: int):
         self.timestamp = time_stamp
@@ -23,7 +21,7 @@ class EventAnnotation:
 
 class DataSource:
 
-    def __init__(self, database: SqlDb):
+    def __init__(self, database: SqlDb, mne_log_level: str = 'WARNING'):
         # todo  incorporate sql backend for storing/loading data
         if not database:
             database = SqlDb.SqlDb()
@@ -33,6 +31,8 @@ class DataSource:
             self.database.connect()
         else:
             print(f'Connection already established: {self.database.db_path}')
+
+        mne.set_log_level(mne_log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
         return
 
     def get_raw_trial(self, subject: int, run: int) -> RawEDF:
