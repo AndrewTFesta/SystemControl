@@ -19,18 +19,15 @@ def extract_info_from_file(file_name):
     with open(file_name, 'rb+') as physio_file_data:
         physio_bytes = physio_file_data.read()
 
-    # verbosity: str = 'critical'
-    # raw_edf = read_raw_edf(each_file, preload=True, verbose=verbosity)
-
     file_info, _ = os.path.splitext(os.path.basename(file_name))
     subject_name = file_info[:4]
     run_num = file_info[4:]
 
     physio_entry = {
-        "fname": file_name,
-        "subject": subject_name,
-        "run": run_num,
-        "data": physio_bytes
+        'fname': file_name,
+        'subject': subject_name,
+        'run': run_num,
+        'data': physio_bytes
     }
     return physio_entry
 
@@ -82,7 +79,6 @@ def main():
 
     # Set up SQL connection
     physio_table_fields = {
-        # 'id': DataType.INTEGER.name,
         'fname': DataType.TEXT.name,
         'subject': DataType.TEXT.name,
         'run': DataType.TEXT.name,

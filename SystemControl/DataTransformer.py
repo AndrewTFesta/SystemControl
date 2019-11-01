@@ -42,9 +42,8 @@ class DataTransformer:
         self._spacing = spacing
         self._cmap = cmap
         self._interpolation = interpolation
-        self._start_padding = start_padding
-        # self._end_padding = end_padding
-        self._duration = duration
+        self._start_padding = int(start_padding * 100) / 100.
+        self._duration = int(duration * 100) / 100.
 
         self._raw_data = None
         self._data = None
@@ -68,6 +67,8 @@ class DataTransformer:
             self._base_dir = os.path.join(
                 DATA_DIR, 'heatmaps',
                 self.data_source.__str__(),
+                str(int(self._start_padding * 100)),
+                str(int(self._duration * 100)),
                 self._interpolation.name,
                 int_to_subject_str(self._subject)
             )
@@ -87,10 +88,12 @@ class DataTransformer:
 
     def set_spacing(self, spacing):
         self._spacing = spacing
+        self.__init_data()
         return
 
     def set_cmap(self, cmap):
         self._cmap = cmap
+        self.__init_data()
         return
 
     def set_interpolation(self, interpolation):
@@ -100,10 +103,12 @@ class DataTransformer:
 
     def set_start_padding(self, start_padding):
         self._start_padding = start_padding
+        self.__init_data()
         return
 
     def set_duration(self, duration):
         self._duration = duration
+        self.__init_data()
         return
 
     @staticmethod
@@ -274,9 +279,8 @@ def main():
     # todo validate dataset
     row_spacing: int = 100
     interp: Interpolation = Interpolation.LINEAR
-    start_padding: float = 0.1
-    end_padding: float = 0.1
-    duration: float = 0.5
+    start_padding_list: list = [0.1]
+    duration_list: list = [0.5]
     debug = False
 
     db_path = DATABASE_URL
@@ -285,21 +289,25 @@ def main():
 
     data_transformer = DataTransformer(
         physio_data_source, subject=1, spacing=row_spacing, cmap=CMAP.rocket_r, interpolation=interp,
-        start_padding=start_padding, end_padding=end_padding, duration=duration,
-        debug=debug
+        start_padding=start_padding_list[0], duration=duration_list[0], debug=debug
     )
 
     for each_subject in SUBJECT_NUMS:
         for each_enum in Interpolation:
-            try:
-                data_transformer.set_subject(each_subject)
-                data_transformer.set_interpolation(each_enum)
-                data_transformer.slice_data()
-                data_transformer.build_all_images()
-                data_transformer.save_images()
-                data_transformer.save_metadata()
-            except Exception as e:
-                print(str(e))
+            for each_start in start_padding_list:
+                for each_duration in duration_list:
+                    try:
+                        data_transformer.set_subject(each_subject)
+                        data_transformer.set_interpolation(each_enum)
+                        data_transformer.set_start_padding(each_start)
+                        data_transformer.set_start_padding(each_duration)
+
+                        data_transformer.slice_data()
+                        data_transformer.build_all_images()
+                        data_transformer.save_images()
+                        data_transformer.save_metadata()
+                    except Exception as e:
+                        print(str(e))
     return
 
 

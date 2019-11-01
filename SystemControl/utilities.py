@@ -87,14 +87,15 @@ def find_files_by_name(filename: str, root_dir: str = None) -> list:
     """
     if not root_dir:
         root_dir = SOURCE_PACKAGE
-        # root_dir = os.path.dirname(__file__)
 
-    found_file_list = []
+    filename, ext = os.path.splitext(filename)
+    file_list = []
     for root, dirs, files in os.walk(root_dir):
-        f_to_chk = os.path.join(root, filename)
-        if os.path.isfile(f_to_chk):
-            found_file_list.append(f_to_chk)
-    return found_file_list
+        for each_file in files:
+            fname_to_check, file_extension = os.path.splitext(each_file)
+            if fname_to_check == filename:
+                file_list.append(os.path.join(root, each_file))
+    return file_list
 
 
 def find_files_by_type(file_type: str, root_dir: str = None) -> list:
