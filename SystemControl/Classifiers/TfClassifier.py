@@ -123,18 +123,43 @@ def plot_history_metric(model_histroy, metric_name):
 
 class TfClassifier:
 
-    def __init__(self, base_data_directory):
+    def __init__(self, base_data_directory, chosen_beings: list, interpolation_types: list, sources: list,
+                 target: str = 'event', mdl_name: str = None, verbosity: int = 1,
+                 learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
+                 resize_height: int = 224, resize_width: int = 224, rand_seed: int = 42):
         self._data_directory = base_data_directory
-        self._data = []
+        self._raw_data = self.__load_image_files()
+        self._filter_data, self.class_names = self.__filter_data_entries()
+        self._train_history = None
+        self._eval_metrics = None
 
-        self.__load_images()
+        self._rand_seed = rand_seed
+        self._img_height = resize_height
+        self._img_width = resize_width
+        self._verbosity = verbosity
 
-        # input_shape, num_classes
-        # self.model = self.build_cnn_v0()
+        self.chosen_beings = chosen_beings
+        self.interpolation_list = interpolation_types
+        self.source_list = sources
+        self.target_column = target
+        self.img_dims = (self._img_width, self._img_height)
+        self.lr = learning_rate
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+        self.model_name = f''
+        if mdl_name:
+            self.model_name = mdl_name
+
+        self.model = self.__build_cnn_v0()
+
+        self.output_dir = os.path.join(DATA_DIR, 'output', 'tf', self.model_name)
+        if not os.path.isdir(self.output_dir):
+            os.makedirs(self.output_dir)
         return
 
-    def __load_images(self):
+    def __load_image_files(self):
         img_files = find_files_by_type('png', self._data_directory)
+        data_list = []
         for each_file in img_files:
             file_parts = each_file.split(os.path.sep)
             file_id, file_ext = os.path.splitext(file_parts[-1])
@@ -144,11 +169,33 @@ class TfClassifier:
             file_source = file_parts[-5]
             data_entry = {'event': event_type, 'subject': file_subject, 'interpolation': file_interp,
                           'source': file_source, 'id': file_id, 'path': each_file}
-            self._data.append(data_entry)
-        return
+            data_list.append(data_entry)
+        return data_list
 
-    @staticmethod
-    def __build_cnn_v0(input_shape=None, num_classes=None):
+    def __filter_data_entries(self):
+        filter_criteria = {
+            'subject': self.chosen_beings, 'interpolation': self.interpolation_list, 'source': self.source_list
+        }
+        filtered_dataset = filter_list_of_dicts(self._raw_data, filter_criteria)
+        rand_generator = random.Random(self._rand_seed)
+        rand_generator.shuffle(filtered_dataset)
+        filtered_df = pd.DataFrame(filtered_dataset)
+        class_names = sorted(filtered_df[self.target_column].unique())
+        target_str_to_idx = {class_name: class_idx for class_idx, class_name in enumerate(class_names)}
+        filtered_df.replace(target_str_to_idx, inplace=True)
+        return filtered_df, class_names
+
+    def __build_cnn_v0(self, input_shape=None, num_classes=None):
+        if not input_shape:
+            input_shape = train_img_shape[1:]
+
+        if not num_classes:
+            num_classes = len(self.class_names)
+
+        # train_img_shape = train_images.shape
+        # val_img_shape = val_images.shape
+        # test_img_shape = test_images.shape
+
         model = keras.Sequential()
 
         # base architecture
@@ -162,125 +209,93 @@ class TfClassifier:
         model.add(keras.layers.Flatten())
         model.add(keras.layers.Dense(64, activation='relu'))
         model.add(keras.layers.Dense(num_classes, activation='softmax'))
+
+        model.compile(
+            optimizer=self.get_model_optimizer(self.lr), loss=self.get_model_loss(), metrics=self.get_model_metrics
+        )
         return model
 
+    @staticmethod
+    def get_model_callbacks():
+        fit_callbacks = [
+            keras.callbacks.EarlyStopping(
+                monitor='val_accuracy', verbose=1, patience=3, mode='max', restore_best_weights=True
+            )
+        ]
+        return fit_callbacks
 
-def main():
-    #############################################
-    print(f'TensorFlow version: {tf.__version__}')
-    print(f'Eager execution: {tf.executing_eagerly()}')
-    #############################################
-    heatmap_dir = os.path.join(DATA_DIR, 'heatmaps')
-    tf_classifier = TfClassifier(heatmap_dir)
-    
-    #############################################
-    display_ds_analytics = False
-    display_samples = False
-    display_metrics = False
-    save_model = False
-    display_model = True
-    train_verbosity = 1
+    @staticmethod
+    def get_model_metrics():
+        metrics_list = [
+            keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
+            keras.metrics.CosineSimilarity(name='cos_similarity'),
+            keras.metrics.CategoricalHinge(name='categorical_hinge'),
+            keras.metrics.MeanAbsoluteError(name='mae'),
+            keras.metrics.MeanSquaredError(name='mse'),
+        ]
+        return metrics_list
 
-    target_column = 'event'
-    num_subjects = 1
-    num_epochs = 1
-    b_size = 1
-    lr = 1e-4
-    img_height = 224
-    img_width = 224
+    @staticmethod
+    def get_model_optimizer(lr):
+        optimizer = keras.optimizers.Adam(lr=lr)
+        return optimizer
 
-    img_dims = (img_width, img_height)
-    optimizer = keras.optimizers.Adam(lr=lr)
-    loss_func = keras.losses.SparseCategoricalCrossentropy()
-    fit_callbacks = [
-        keras.callbacks.EarlyStopping(
-            monitor='val_accuracy', verbose=1, patience=3, mode='max', restore_best_weights=True
+    @staticmethod
+    def get_model_loss():
+        loss_func = keras.losses.SparseCategoricalCrossentropy()
+        return loss_func
+
+    def __split_data(self, test_size=0.25, val_size=0.15):
+        train_val_df, test_filtered_df = train_test_split(
+            self._raw_data, test_size=test_size, random_state=self._rand_seed
         )
-    ]
-    metrics_list = [
-        keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
-        keras.metrics.CosineSimilarity(name='cos_similarity'),
-        keras.metrics.CategoricalHinge(name='categorical_hinge'),
-        keras.metrics.MeanAbsoluteError(name='mae'),
-        keras.metrics.MeanSquaredError(name='mse'),
-    ]
+        train_filtered_df, val_filtered_df = train_test_split(
+            train_val_df, test_size=val_size, random_state=self._rand_seed
+        )
 
-    train_size, test_size, val_size = (0.6, 0.15, 0.25)
-    rand_seed = 42
+        train_paths_df, train_targets_df = train_filtered_df['path'], train_filtered_df[self.target_column]
+        val_paths_df, val_targets_df = val_filtered_df['path'], val_filtered_df[self.target_column]
+        test_paths_df, test_targets_df = test_filtered_df['path'], test_filtered_df[self.target_column]
 
-    rand_generator = random.Random(rand_seed)
-    chosen_beings = sorted(rand_generator.sample(SUBJECT_NAMES, k=num_subjects))
+        train_labels = train_targets_df.to_numpy()
+        val_labels = val_targets_df.to_numpy()
+        test_labels = test_targets_df.to_numpy()
 
-    source_list = [PhysioDataSource.NAME]
-    interpolation_list = [
-        Interpolation.LINEAR.name,
-        Interpolation.QUADRATIC.name,
-        Interpolation.CUBIC.name
-    ]
+        train_images = self.__load_images(train_paths_df)
+        val_images = self.__load_images(val_paths_df)
+        test_images = self.__load_images(test_paths_df)
+        return
 
-    filtered_dataset = filter_list_of_dicts(
-        heatmap_dataset,
-        {'subject': chosen_beings, 'interpolation': interpolation_list, 'source': source_list}
-    )
-    rand_generator = random.Random(rand_seed)
-    rand_generator.shuffle(filtered_dataset)
-    filtered_df = pd.DataFrame(filtered_dataset)
-    class_names = sorted(filtered_df[target_column].unique())
-    target_str_to_idx = {
-        class_name: class_idx
-        for class_idx, class_name in enumerate(class_names)
-    }
-    filtered_df.replace(target_str_to_idx, inplace=True)
+    def __load_images(self, img_paths):
+        img_list = []
+        for each_path in tqdm(img_paths, desc=f'Loading images'):
+            img = cv2.imread(each_path)
+            img = cv2.resize(img, self.img_dims)
+            img_list.append(img)
+        np_images = np.asarray(img_list)
+        np_images = np_images / 255.0
+        return np_images
 
-    train_val_df, test_filtered_df = train_test_split(
-        filtered_df, test_size=test_size, random_state=rand_seed
-    )
-    train_filtered_df, val_filtered_df = train_test_split(
-        train_val_df, test_size=test_size, random_state=rand_seed
-    )
-    #############################################
-    train_paths_df, train_targets_df = train_filtered_df['path'], train_filtered_df[target_column]
-    val_paths_df, val_targets_df = val_filtered_df['path'], val_filtered_df[target_column]
-    test_paths_df, test_targets_df = test_filtered_df['path'], test_filtered_df[target_column]
-    #############################################
-    train_images = []
-    for each_path in tqdm(train_paths_df, desc=f'Loading train images'):
-        img = cv2.imread(each_path)
-        img = cv2.resize(img, img_dims)
-        train_images.append(img)
-    train_images = np.asarray(train_images)
+    def train(self):
+        self._train_history = self.model.fit(
+            train_images, train_labels, epochs=self.num_epochs, verbose=self._verbosity, batch_size=self.batch_size,
+            callbacks=self.get_model_callbacks(), validation_data=(val_images, val_labels)
+        )
+        return self
 
-    val_images = []
-    for each_path in tqdm(val_paths_df, desc=f'Loading validation images'):
-        img = cv2.imread(each_path)
-        img = cv2.resize(img, img_dims)
-        val_images.append(img)
-    val_images = np.asarray(val_images)
+    def evaluate(self):
+        self._eval_metrics = self.model.evaluate(test_images, test_labels, verbose=self._verbosity)
+        return self
 
-    test_images = []
-    for each_path in tqdm(test_paths_df, desc=f'Loading test images'):
-        img = cv2.imread(each_path)
-        img = cv2.resize(img, img_dims)
-        test_images.append(img)
-    test_images = np.asarray(test_images)
-    #############################################
-    train_labels = train_targets_df.to_numpy()
-    val_labels = val_targets_df.to_numpy()
-    test_labels = test_targets_df.to_numpy()
+    def display_dataset(self):
+        train_event_counts = train_filtered_df[target_column].value_counts()
+        val_event_counts = val_filtered_df[target_column].value_counts()
+        test_event_counts = test_filtered_df[target_column].value_counts()
 
-    train_images = train_images / 255.0
-    val_images = val_images / 255.0
-    test_images = test_images / 255.0
+        train_img_shape = train_images.shape
+        val_img_shape = val_images.shape
+        test_img_shape = test_images.shape
 
-    train_img_shape = train_images.shape
-    val_img_shape = val_images.shape
-    test_img_shape = test_images.shape
-
-    train_event_counts = train_filtered_df[target_column].value_counts()
-    val_event_counts = val_filtered_df[target_column].value_counts()
-    test_event_counts = test_filtered_df[target_column].value_counts()
-
-    if display_ds_analytics:
         print('=====================================================================')
         print(f'Data source: {", ".join(source_list)}')
         print(f'Number of interpolation types: {len(interpolation_list)}')
@@ -319,28 +334,15 @@ def main():
         print(f'Shape validation images: {val_img_shape}')
         print(f'Shape test images: {test_img_shape}')
         print('=====================================================================')
+        return
 
-    if display_samples:
+    def display_samples(self):
         show_top_samples(train_images, train_labels, title='Train', num_rows=5, num_cols=5)
         show_top_samples(val_images, val_labels, title='Validation', num_rows=5, num_cols=5)
         show_top_samples(test_images, test_labels, title='Test', num_rows=5, num_cols=5)
+        return
 
-    #############################################
-    model = build_cnn_v0(input_shape=train_img_shape[1:], num_classes=len(class_names))
-
-    model.compile(
-        optimizer=optimizer,
-        loss=loss_func,
-        metrics=metrics_list
-    )
-
-    train_history = model.fit(train_images, train_labels,
-                              epochs=num_epochs, verbose=train_verbosity, batch_size=b_size,
-                              callbacks=fit_callbacks, validation_data=(val_images, val_labels))
-
-    eval_metrics = model.evaluate(test_images, test_labels, verbose=0)
-    ##########################################################################
-    if display_metrics:
+    def display_metrics(self):
         print('==========================================================================')
         print(f'Test loss: {eval_metrics[0]}', end='')
         sep = '\n\t'
@@ -360,38 +362,86 @@ def main():
         plot_history_metric(train_history, 'accuracy')
         plot_history_metric(train_history, 'loss')
         print('==========================================================================')
+        return
 
-    output_dir = os.path.join(DATA_DIR, 'output', 'tf')
-    if not os.path.isdir(output_dir):
-        os.makedirs(output_dir)
-    model_name = f''
-    if display_model:
+    def display_model(self):
         print('==========================================================================')
-        model.summary()
+        self.model.summary()
         # pip install pydot
         # pip install pydotplus
         # pip install graphviz
         #   https://www.graphviz.org/download/
         #   Make sure that the directory containing the dot executable is on your system's path
-        keras.utils.plot_model(model, os.path.join(output_dir, f'{model_name}_plot.png'), show_shapes=True)
+        keras.utils.plot_model(
+            self.model, os.path.join(self.output_dir, f'{self.model_name}_plot.png'), show_shapes=True
+        )
         print('==========================================================================')
-    if save_model:
-        with open(os.path.join(output_dir, f'{model_name}_metrics.txt'), 'a+') as metric_file:
-            # print(f'Test loss: {eval_metrics[0]}', end='')
-            # sep = '\n\t'
-            # # loss is the first value in 'eval_metrics' -> skip over it
-            # eval_metrics = eval_metrics[1:]
-            # for metric_index, each_metric in enumerate(metrics_list):
-            #     print(f'{sep}{each_metric.name}: {eval_metrics[metric_index]:0.4f}', end='')
-            #     sep = ', '
-            # print()
-            # metric_file.write(f'{each_subject}: {test_acc:0.2f}')
-            #
+        return
+
+    def save_model(self):
+        with open(os.path.join(self.output_dir, f'{self.model_name}_metrics.txt'), 'a+') as metric_file:
             # eval_metrics as dict
             # add model weights
             # add run params (subject, interp, etc)
             # write json to file
             pass
+        return
+
+    def load_pretrained(self):
+        return
+
+
+def main():
+    print(f'TensorFlow version: {tf.__version__}')
+    print(f'Eager execution: {tf.executing_eagerly()}')
+    #############################################
+    load_model = False
+    verbosity = 1
+
+    display_dataset = False
+    display_samples = False
+    display_metrics = False
+    save_model = False
+    display_model = True
+    #############################################
+    heatmap_dir = os.path.join(DATA_DIR, 'heatmaps')
+    target_column = 'event'
+    num_subjects = 1
+    num_epochs = 1
+    b_size = 1
+    lr = 1e-4
+    #############################################
+    rand_seed = 42
+    rand_generator = random.Random(rand_seed)
+    chosen_beings = sorted(rand_generator.sample(SUBJECT_NAMES, k=num_subjects))
+
+    source_list = [PhysioDataSource.NAME]
+    interpolation_list = [
+        Interpolation.LINEAR.name,
+        Interpolation.QUADRATIC.name,
+        Interpolation.CUBIC.name
+    ]
+    #############################################
+    tf_classifier = TfClassifier(
+        heatmap_dir, chosen_beings=chosen_beings, interpolation_types=interpolation_list, sources=source_list,
+        target=target_column, verbosity=verbosity, num_epochs=num_epochs, batch_size=b_size, learning_rate=lr
+    )
+    if load_model:
+        tf_classifier.load_pretrained()
+    else:
+        tf_classifier.train()
+        tf_classifier.evaluate()
+        if save_model:
+            tf_classifier.save_model()
+
+    if display_dataset:
+        tf_classifier.display_dataset()
+    if display_samples:
+        tf_classifier.display_samples()
+    if display_metrics:
+        tf_classifier.display_metrics()
+    if display_model:
+        tf_classifier.display_model()
     return
 
 

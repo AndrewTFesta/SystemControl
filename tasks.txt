@@ -1,11 +1,11 @@
-todo build model plots
+todo add command line args to classifier
+todo move train/test/classification into class design
+todo break into options of load/train model
 todo save metrics
 
 todo look into tf image functions and fit_generator
-todo move train/test/classification into class design
-todo break into options of load/train model
-
 todo generate images with different durations (0.1, 0.2, 0.3, 0.4, 0.5) and different start padding (0.15, 0.1, 0.5)
+
 todo refactor to move functionality to correct classes
 
 todo build dataset of csp features
