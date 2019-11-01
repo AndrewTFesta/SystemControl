@@ -13,7 +13,7 @@ from mne import events_from_annotations
 
 from SystemControl import DATABASE_URL
 from SystemControl.DataSource import SqlDb, DataSource
-from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, PhysioEvent
+from SystemControl.DataSource.PhysioDataSource import PhysioEvent, PhysioDataSource
 
 
 class EegVisualizer:

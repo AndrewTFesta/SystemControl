@@ -20,6 +20,7 @@ class EventAnnotation:
 
 
 class DataSource:
+    NAME = 'default'
 
     def __init__(self, database: SqlDb, mne_log_level: str = 'WARNING'):
         # todo  incorporate sql backend for storing/loading data
@@ -34,6 +35,9 @@ class DataSource:
 
         mne.set_log_level(mne_log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
         return
+
+    def __str__(self):
+        return self.NAME
 
     def get_raw_trial(self, subject: int, run: int) -> RawEDF:
         raise NotImplemented

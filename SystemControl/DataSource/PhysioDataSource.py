@@ -57,22 +57,27 @@ class PhysioEntry:
         return
 
 
+SUBJECT_NUMS = list(range(1, 109))
+SUBJECT_NAMES = [int_to_subject_str(each_subject) for each_subject in SUBJECT_NUMS]
+RUN_NUMS = list(range(1, 14))
+RUN_NAMES = [int_to_run_str(each_run) for each_run in RUN_NUMS]
+
+
 class PhysioDataSource(DataSource):
-    SUBJECT_NUMS = list(range(1, 109))
-    RUN_NUMS = list(range(1, 14))
     PHYSIO_TABLE_NAME = 'physio_data'
     COI = ['C3', 'Cz', 'C4']
+    NAME = 'Physio'
 
     def __init__(self, database: SqlDb):
         super().__init__(database)
         return
 
     def __str__(self):
-        return 'Physio'
+        return self.NAME
 
     @staticmethod
     def validate_subject_num(subject_num) -> bool:
-        return subject_num in PhysioDataSource.SUBJECT_NUMS
+        return subject_num in SUBJECT_NUMS
 
     @staticmethod
     def clean_raw_edf(raw_edf):
@@ -93,9 +98,9 @@ class PhysioDataSource(DataSource):
         if not isinstance(run, int):
             raise TypeError(f'Invalid type of run parameter: {type(run)}')
 
-        if subject not in self.SUBJECT_NUMS:
+        if subject not in SUBJECT_NUMS:
             raise ValueError(f'Invalid subject specified: \'{subject}\'')
-        if run not in self.RUN_NUMS:
+        if run not in RUN_NUMS:
             raise ValueError(f'Invalid run specified: \'{run}\'')
 
         subject_str = int_to_subject_str(subject)

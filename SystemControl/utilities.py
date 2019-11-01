@@ -54,6 +54,25 @@ def build_dir_path(dir_name: Path) -> None:
     return
 
 
+def filter_list_of_dicts(list_of_dicts, filter_dict):
+    """
+
+    :param list_of_dicts:   list of dictionary entries to filter
+    :param filter_dict:     dictionary where each value a list containing values to match
+    :return:
+    """
+    filter_list = []
+    for each_entry in list_of_dicts:
+        for filter_key, filter_val in filter_dict.items():
+            entry_val = each_entry.get(filter_key, None)
+            inval_entry = not any(entry_val == each_filter_val for each_filter_val in filter_val)
+            if inval_entry:
+                break
+        else:
+            filter_list.append(each_entry)
+    return filter_list
+
+
 def find_files_by_name(filename: str, root_dir: str = None) -> list:
     """
     Locates all files of the specified name under the supplied
@@ -104,6 +123,10 @@ def find_files_by_type(file_type: str, root_dir: str = None) -> list:
             if file_extension == file_type:
                 file_list.append(os.path.join(root, file))
     return file_list
+
+
+def get_path_var():
+    return os.environ.get('PATH', None)
 
 
 def in_ipynb() -> bool:

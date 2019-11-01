@@ -1,27 +1,24 @@
-todo log recorded data based on subject name
-todo parse recorded events and data
-todo build classifier from pytorch or tensorflow
+todo build model plots
+todo save metrics
+
+todo look into tf image functions and fit_generator
+todo move train/test/classification into class design
+todo break into options of load/train model
+
+todo generate images with different durations (0.1, 0.2, 0.3, 0.4, 0.5) and different start padding (0.15, 0.1, 0.5)
+todo refactor to move functionality to correct classes
+
+todo build dataset of csp features
 todo build svm classifier (scikit learn)
 todo build log reg classifier (scikit learn)
-todo timing analysis of building dataset
+
+todo remove sql backend - cannot do multiprocessing
+todo timing analysis of generating images for dataset
 todo move 'main's into notebooks
 todo move scripts into notebooks
 todo load recorded data
 todo load project bci data
-todo remove project bci data from github
-todo only store relevant info in sql db
 todo docs
-todo refactor to move functionality to correct classes
-todo train/test/val dir structure
-    train/
-        event0
-        event1
-        event2
-    validation/
-        event0
-        event1
-        event2
-    test/
-        event0
-        event1
-        event2
+
+todo log recorded data based on subject name
+todo parse recorded events and data

@@ -42,7 +42,6 @@ class CliRecorder:
         self.event_fname = os.path.join(event_dir, '{}_{}.txt'.format(subject_name, time_stamp))
         return
 
-    # noinspection PyTypeChecker
     def run(self):
         self.rec_thread = threading.Thread(target=self.start_recorder, args=(), daemon=True)
         self.rand_act_thread = threading.Thread(target=self.start_rand_act, args=(), daemon=True)
@@ -62,16 +61,15 @@ class CliRecorder:
         self.running = False
         return
 
-    # noinspection PyTypeChecker
     def print_random_action(self):
         rand_action = random.choice([each_action for each_action in KeyAction])
         log_msg = 'print {}'.format(rand_action.name)
         print('----- {} -----'.format(log_msg))
         act_time = time.time()
+        # noinspection PyTypeChecker
         self.event_dict[act_time - self.start_time] = log_msg
         return
 
-    # noinspection PyTypeChecker
     def start_recorder(self):
         """
 
@@ -103,6 +101,7 @@ class CliRecorder:
                 try:
                     log_message = 'press {}'.format(KeyAction(key_pressed).name)
                     print(log_message, file=sys.stderr)
+                    # noinspection PyTypeChecker
                     self.event_dict[press_time - self.start_time] = log_message
                 except ValueError as ve:
                     print('Unrecognized input: 224 + {}\n{}'.format(key_pressed, str(ve)))

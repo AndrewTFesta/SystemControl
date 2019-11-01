@@ -5,9 +5,7 @@
 import csv
 import os
 import sys
-# from concurrent.futures.thread import ThreadPoolExecutor
 from enum import Enum
-from threading import Lock
 
 import cv2
 import matplotlib.pyplot as plt
@@ -19,7 +17,7 @@ from tqdm import tqdm
 
 from SystemControl import DATABASE_URL, DATA_DIR
 from SystemControl.DataSource import DataSource, SqlDb
-from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, int_to_subject_str
+from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, int_to_subject_str, SUBJECT_NUMS
 
 
 class CMAP(Enum):
@@ -27,17 +25,25 @@ class CMAP(Enum):
     YlGnBu = 1
 
 
+class Interpolation(Enum):
+    LINEAR = 0
+    QUADRATIC = 1
+    CUBIC = 2
+
+
 class DataTransformer:
 
     def __init__(self, data_source: DataSource, subject: int = 1, spacing: int = 50, cmap: CMAP = CMAP.rocket_r,
-                 start_padding: float = 0.1, end_padding: float = 0.1, duration: float = 0.5, debug: bool = False):
+                 interpolation: Interpolation = Interpolation.LINEAR, start_padding: float = 0.1, duration: float = 0.5,
+                 debug: bool = False):
         self.data_source = data_source
 
         self._subject = subject
         self._spacing = spacing
         self._cmap = cmap
+        self._interpolation = interpolation
         self._start_padding = start_padding
-        self._end_padding = end_padding
+        # self._end_padding = end_padding
         self._duration = duration
 
         self._raw_data = None
@@ -45,6 +51,8 @@ class DataTransformer:
         self._events = None
         self._data_slices = None
         self._image_slices = None
+        self._base_dir = None
+        self._tqdm_base_desc = None
 
         self.__init_data()
 
@@ -57,7 +65,13 @@ class DataTransformer:
             self._raw_data = self.data_source.get_mi_right_left(self._subject)
             self._data = self.data_source.get_data(self._raw_data)
             self._events = events_from_annotations(self._raw_data)
-
+            self._base_dir = os.path.join(
+                DATA_DIR, 'heatmaps',
+                self.data_source.__str__(),
+                self._interpolation.name,
+                int_to_subject_str(self._subject)
+            )
+            self._tqdm_base_desc = f'{self._subject}: {self._interpolation.name}'
             self._data_slices = []
         return
 
@@ -79,12 +93,13 @@ class DataTransformer:
         self._cmap = cmap
         return
 
-    def set_start_padding(self, start_padding):
-        self._start_padding = start_padding
+    def set_interpolation(self, interpolation):
+        self._interpolation = interpolation
+        self.__init_data()
         return
 
-    def set_end_padding(self, end_padding):
-        self._end_padding = end_padding
+    def set_start_padding(self, start_padding):
+        self._start_padding = start_padding
         return
 
     def set_duration(self, duration):
@@ -101,41 +116,29 @@ class DataTransformer:
             evt_str = None
         return evt_str
 
-    @staticmethod
-    def __update_pbar_callback(future):
-        future_arg = future.arg
-        future_arg.update(1)
-        return
-
-    @staticmethod
-    def __entry_id(data_entry: np.ndarray, sample_idx: int, event_str: str):
-        entry_str = f'{str(data_entry)}_{str(sample_idx)}_{event_str}'
+    def __entry_id(self, data_entry: np.ndarray, sample_idx: int, event_str: str):
+        entry_str = f'{str(data_entry)}_{str(sample_idx)}_{event_str}_' \
+                    f'{self._subject}_{self._spacing}_{self._cmap}_{self._interpolation.name}' \
+                    f'{self._start_padding}_{self._duration}'
         entry_hash = hash(entry_str)
         return abs(entry_hash)
 
     def save_metadata(self):
-        save_dir = os.path.join(DATA_DIR, 'heatmaps', f'{self.data_source.__str__()}')
-        if not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
-        out_fname = os.path.join(
-            save_dir,
-            f'metadata_{int_to_subject_str(self._subject)}.csv'
-        )
+        if not os.path.isdir(self._base_dir):
+            os.makedirs(self._base_dir)
+        out_fname = os.path.join(self._base_dir, f'metadata_{int_to_subject_str(self._subject)}.csv')
         entry_list = []
         for each_entry in self._data_slices:
-            for each_interp, each_image in each_entry['image_slices'].items():
-                entry_dict = {
-                    'id': each_entry['id'],
-                    'type': each_entry['type'],
-                    'spacing': self._spacing,
-                    'color_map': self._cmap.name,
-                    'start_padding': self._start_padding,
-                    'end_padding': self._end_padding,
-                    'duration': self._duration,
-                    'interpolation': each_interp,
-                }
-                entry_list.append(entry_dict)
-        # todo save table to file
+            entry_dict = {
+                'id': each_entry['id'],
+                'type': each_entry['type'],
+                'spacing': self._spacing,
+                'color_map': self._cmap.name,
+                'start_padding': self._start_padding,
+                'duration': self._duration,
+                'interpolation': self._interpolation.name,
+            }
+            entry_list.append(entry_dict)
         with open(out_fname, 'w+', newline='') as metafile:
             w = csv.DictWriter(metafile, entry_list[-1].keys())
             w.writeheader()
@@ -143,7 +146,7 @@ class DataTransformer:
         return
 
     def save_images(self):
-        pbar = tqdm(total=len(self._data_slices), desc=f'{self._subject}: Saving images', file=sys.stdout)
+        pbar = tqdm(total=len(self._data_slices), desc=f'{self._tqdm_base_desc}: Saving images', file=sys.stdout)
         for each_entry in self._data_slices:
             self.save_image_slice(each_entry)
             pbar.update(1)
@@ -152,27 +155,15 @@ class DataTransformer:
 
     # noinspection PyTypeChecker
     def save_image_slice(self, slice_entry):
-        image_slices = slice_entry['image_slices']
+        image_slice = slice_entry['image_slice']
         event_type = slice_entry['type']
         image_id = slice_entry['id']
-
-        for each_interp, each_image_slice in image_slices.items():
-            save_dir = os.path.join(
-                DATA_DIR, 'heatmaps', f'{self.data_source.__str__()}',
-                int_to_subject_str(self._subject), f'event_{event_type}'
-            )
-            if not os.path.isdir(save_dir):
-                os.makedirs(save_dir)
-            out_fname = os.path.join(
-                save_dir,
-                f'{image_id}.png'
-            )
-            # out_fname = os.path.join(
-            #     save_dir,
-            #     f'id_{image_id}_spacing_{spacing}_interp_{each_interp}_spad_{spd_str}_epad_{epd_str}_dur_{dur_str}.png'
-            # )
-            heatmap = self.build_heatmap(each_image_slice)
-            cv2.imwrite(out_fname, heatmap)  # opencv faster than pillow: 2.63 it/s PIL vs 3.48 it/s CV2
+        save_dir = os.path.join(self._base_dir, f'event_{event_type}')
+        if not os.path.isdir(save_dir):
+            os.makedirs(save_dir)
+        out_fname = os.path.join(save_dir, f'{image_id}.png')
+        heatmap = self.build_heatmap(image_slice)
+        cv2.imwrite(out_fname, heatmap)  # opencv faster than pillow: 2.63 it/s PIL vs 3.48 it/s CV2
         return
 
     def build_heatmap(self, image_slice):
@@ -189,20 +180,18 @@ class DataTransformer:
         return image_from_plot
 
     def build_all_images(self):
-        pbar = tqdm(total=len(self._data_slices), desc=f'{self._subject}: Building images', file=sys.stdout)
+        pbar = tqdm(total=len(self._data_slices), desc=f'{self._tqdm_base_desc}: Building images', file=sys.stdout)
         for each_entry in self._data_slices:
             self.slice2img(each_entry)
             pbar.update(1)
         pbar.close()
         return
 
-    def slice2img(self, data_entry: dict):
+    def slice2img(self, data_entry: dict, plot_interpolation: bool = False):
         data_slice = data_entry['slice']
-
+        interp_str = self._interpolation.name.lower()
         num_cols = (data_slice.shape[1] + 1) * self._spacing + data_slice.shape[1]
         lin_spaced_slice = []
-        quad_spaced_slice = []
-        cub_spaced_slice = []
         for each_row in data_slice:
             each_row = np.insert(each_row, 0, values=[0])
             each_row = np.append(each_row, 0)
@@ -210,35 +199,21 @@ class DataTransformer:
             x = np.linspace(0, each_row.shape[0], num=each_row.shape[0], endpoint=False)
             xnew = np.linspace(0, each_row.shape[0] - 1, num=num_cols, endpoint=True)
 
-            line_interp = interp1d(x, each_row, fill_value='extrapolate', kind='linear')
-            quad_interp = interp1d(x, each_row, fill_value='extrapolate', kind='quadratic')
-            cub_interp = interp1d(x, each_row, fill_value='extrapolate', kind='cubic')
-
+            line_interp = interp1d(x, each_row, fill_value='extrapolate', kind=interp_str)
             new_lin_y = line_interp(xnew)
-            new_quad_y = quad_interp(xnew)
-            new_cub_y = cub_interp(xnew)
-
             lin_spaced_slice.append(new_lin_y)
-            quad_spaced_slice.append(new_quad_y)
-            cub_spaced_slice.append(new_cub_y)
 
-            # self.plot_slices(x, each_row, xnew, new_lin_y, new_quad_y, new_cub_y)
-        norm_slices = {
-            'linear': self.normalize_slice(lin_spaced_slice),
-            'quad': self.normalize_slice(quad_spaced_slice),
-            'cubic': self.normalize_slice(cub_spaced_slice)
-        }
-        data_entry['image_slices'] = norm_slices
-        return norm_slices
+            if plot_interpolation:
+                self.plot_interpolation(x, each_row, xnew, new_lin_y, self._interpolation.name)
+        data_entry['image_slice'] = lin_spaced_slice
+        return lin_spaced_slice
 
     @staticmethod
-    def plot_slices(x_vals, row_vals, xnew, liny, quady, cuby):
+    def plot_interpolation(x_vals, row_vals, xnew, liny, type_str):
         plt.plot(x_vals, row_vals, 'o')
         plt.plot(xnew, liny, '-')
-        plt.plot(xnew, quady, '--')
-        plt.plot(xnew, cuby, ':')
 
-        plt.legend(['data', 'linear', 'quadratic', 'cubic'], loc='best')
+        plt.legend(['data', type_str], loc='best')
         return
 
     @staticmethod
@@ -256,7 +231,6 @@ class DataTransformer:
         freq = self._raw_data.info['sfreq']
 
         num_start_samples_padding = int(freq * self._start_padding)
-        num_end_samples_padding = int(freq * self._end_padding)
         num_samples_per_event = int(freq * self._duration)
 
         event_list = self._events[0]
@@ -265,31 +239,29 @@ class DataTransformer:
         event_types = self._events[1]
         d_transpose = np.transpose(self._data)
 
-        pbar = tqdm(total=len(event_list), desc=f'{self._subject}: Slicing data', file=sys.stdout)
+        pbar = tqdm(total=len(event_list), desc=f'{self._tqdm_base_desc}: Slicing data', file=sys.stdout)
         for event_idx, each_event in enumerate(event_list):
-            call_args = (each_event, event_types, num_samples_per_event, num_start_samples_padding,
-                         num_end_samples_padding, d_transpose)
-            self.extract_slice(*call_args)
+            self.extract_slice(
+                each_event, event_types, num_samples_per_event, num_start_samples_padding, d_transpose
+            )
             pbar.update(1)
         pbar.close()
         return
 
-    def extract_slice(self, slice_event, event_types, num_samples_per_event,
-                      num_start_samples_padding, num_end_samples_padding, data):
+    def extract_slice(self, slice_event, event_types, num_samples_per_event, num_start_samples_padding, data):
         sample_idx = slice_event[0]
         event_id = slice_event[2]
         event_str = DataTransformer.event_from_id(event_types, event_id)
+        start_sample_idx = sample_idx - num_start_samples_padding
         end_sample_idx = sample_idx + num_samples_per_event
 
-        start_slice_idx = sample_idx - num_start_samples_padding
-        end_slice_idx = end_sample_idx + num_end_samples_padding
         # only add to slice_list if data range is valid (non negative and not beyond bounds of d_transpose
-        if start_slice_idx >= 0 and end_slice_idx < len(data):
-            data_slice = data[start_slice_idx:end_slice_idx]
+        if start_sample_idx >= 0 and end_sample_idx < len(data):
+            data_slice = data[start_sample_idx:end_sample_idx]
             slice_entry = {
                 'id': self.__entry_id(data_slice, sample_idx, event_str),
                 'slice': data_slice,
-                'image_slices': None,
+                'image_slice': None,
                 'type': event_str
             }
             self._data_slices.append(slice_entry)
@@ -301,30 +273,33 @@ def main():
     # todo only load data that is missing
     # todo validate dataset
     row_spacing: int = 100
+    interp: Interpolation = Interpolation.LINEAR
     start_padding: float = 0.1
     end_padding: float = 0.1
     duration: float = 0.5
-    debug = True
+    debug = False
 
     db_path = DATABASE_URL
     database = SqlDb.SqlDb(db_path)
     physio_data_source = PhysioDataSource(database)
 
     data_transformer = DataTransformer(
-        physio_data_source, subject=1, spacing=row_spacing,
+        physio_data_source, subject=1, spacing=row_spacing, cmap=CMAP.rocket_r, interpolation=interp,
         start_padding=start_padding, end_padding=end_padding, duration=duration,
         debug=debug
     )
 
-    for each_subject in PhysioDataSource.SUBJECT_NUMS:
-        try:
-            data_transformer.set_subject(each_subject)
-            data_transformer.slice_data()
-            data_transformer.build_all_images()
-            data_transformer.save_images()
-            data_transformer.save_metadata()
-        except Exception as e:
-            print(str(e))
+    for each_subject in SUBJECT_NUMS:
+        for each_enum in Interpolation:
+            try:
+                data_transformer.set_subject(each_subject)
+                data_transformer.set_interpolation(each_enum)
+                data_transformer.slice_data()
+                data_transformer.build_all_images()
+                data_transformer.save_images()
+                data_transformer.save_metadata()
+            except Exception as e:
+                print(str(e))
     return
 
 

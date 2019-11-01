@@ -1,5 +1,6 @@
 .idea/*
 venv/*
+venv_gpu/*
 logs/
 data/
 
