@@ -10,11 +10,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# have to set env variable before importing tensorflow
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
+
+"""
+have to set environment variable before importing tensorflow
+
+0 = all messages are logged (default behavior)
+1 = INFO messages are not printed
+2 = INFO and WARNING messages are not printed
+3 = INFO, WARNING, and ERROR messages are not printed
+"""
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from tensorflow import keras
 from tqdm import tqdm
 
@@ -22,13 +29,6 @@ from SystemControl import DATA_DIR
 from SystemControl.DataSource.PhysioDataSource import SUBJECT_NAMES, PhysioDataSource
 from SystemControl.DataTransformer import Interpolation
 from SystemControl.utilities import find_files_by_type, filter_list_of_dicts
-
-"""
-0 = all messages are logged (default behavior)
-1 = INFO messages are not printed
-2 = INFO and WARNING messages are not printed
-3 = INFO, WARNING, and ERROR messages are not printed
-"""
 
 
 def show_sample(img_sample, target_label):
@@ -126,23 +126,12 @@ class TfClassifier:
     def __init__(self, base_data_directory, chosen_beings: list, interpolation_types: list, sources: list,
                  target: str = 'event', mdl_name: str = None, verbosity: int = 1,
                  learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
-                 resize_height: int = 224, resize_width: int = 224, rand_seed: int = 42):
-        self._data_directory = base_data_directory
-        self._raw_data = self.__load_image_files()
-        self._filter_data, self.class_names = self.__filter_data_entries()
-        self._train_history = None
-        self._eval_metrics = None
-
-        self._rand_seed = rand_seed
-        self._img_height = resize_height
-        self._img_width = resize_width
-        self._verbosity = verbosity
-
+                 resize_height: int = 256, resize_width: int = 224, rand_seed: int = 42):
         self.chosen_beings = chosen_beings
         self.interpolation_list = interpolation_types
         self.source_list = sources
         self.target_column = target
-        self.img_dims = (self._img_width, self._img_height)
+        self.img_dims = (resize_width, resize_height)
         self.lr = learning_rate
         self.batch_size = batch_size
         self.num_epochs = num_epochs
@@ -150,7 +139,17 @@ class TfClassifier:
         if mdl_name:
             self.model_name = mdl_name
 
+        self._rand_seed = rand_seed
+        self._verbosity = verbosity
+
+        self._data_directory = base_data_directory
+        self._raw_data = self.__load_image_files()
+        self._filtered_dataframe, self.class_names = self.__filter_data_entries()
+        self._data_splits = self.__split_data()
+
         self.model = self.__build_cnn_v0()
+        self._train_history = None
+        self._eval_metrics = None
 
         self.output_dir = os.path.join(DATA_DIR, 'output', 'tf', self.model_name)
         if not os.path.isdir(self.output_dir):
@@ -185,16 +184,9 @@ class TfClassifier:
         filtered_df.replace(target_str_to_idx, inplace=True)
         return filtered_df, class_names
 
-    def __build_cnn_v0(self, input_shape=None, num_classes=None):
-        if not input_shape:
-            input_shape = train_img_shape[1:]
-
-        if not num_classes:
-            num_classes = len(self.class_names)
-
-        # train_img_shape = train_images.shape
-        # val_img_shape = val_images.shape
-        # test_img_shape = test_images.shape
+    def __build_cnn_v0(self):
+        input_shape = (self.img_dims[1], self.img_dims[0], 3)
+        num_classes = len(self.class_names)
 
         model = keras.Sequential()
 
@@ -211,7 +203,7 @@ class TfClassifier:
         model.add(keras.layers.Dense(num_classes, activation='softmax'))
 
         model.compile(
-            optimizer=self.get_model_optimizer(self.lr), loss=self.get_model_loss(), metrics=self.get_model_metrics
+            optimizer=self.get_model_optimizer(self.lr), loss=self.get_model_loss(), metrics=self.get_model_metrics()
         )
         return model
 
@@ -247,7 +239,7 @@ class TfClassifier:
 
     def __split_data(self, test_size=0.25, val_size=0.15):
         train_val_df, test_filtered_df = train_test_split(
-            self._raw_data, test_size=test_size, random_state=self._rand_seed
+            self._filtered_dataframe, test_size=test_size, random_state=self._rand_seed
         )
         train_filtered_df, val_filtered_df = train_test_split(
             train_val_df, test_size=val_size, random_state=self._rand_seed
@@ -257,14 +249,25 @@ class TfClassifier:
         val_paths_df, val_targets_df = val_filtered_df['path'], val_filtered_df[self.target_column]
         test_paths_df, test_targets_df = test_filtered_df['path'], test_filtered_df[self.target_column]
 
-        train_labels = train_targets_df.to_numpy()
-        val_labels = val_targets_df.to_numpy()
-        test_labels = test_targets_df.to_numpy()
+        train_images, train_labels = self.__load_images(train_paths_df), train_targets_df.to_numpy()
+        val_images, val_labels = self.__load_images(val_paths_df), val_targets_df.to_numpy()
+        test_images, test_labels = self.__load_images(test_paths_df), test_targets_df.to_numpy()
 
-        train_images = self.__load_images(train_paths_df)
-        val_images = self.__load_images(val_paths_df)
-        test_images = self.__load_images(test_paths_df)
-        return
+        data_dict = {
+            'train': {
+                'images': train_images,
+                'labels': train_labels
+            },
+            'validation': {
+                'images': val_images,
+                'labels': val_labels
+            },
+            'test': {
+                'images': test_images,
+                'labels': test_labels
+            },
+        }
+        return data_dict
 
     def __load_images(self, img_paths):
         img_list = []
@@ -278,38 +281,50 @@ class TfClassifier:
 
     def train(self):
         self._train_history = self.model.fit(
-            train_images, train_labels, epochs=self.num_epochs, verbose=self._verbosity, batch_size=self.batch_size,
-            callbacks=self.get_model_callbacks(), validation_data=(val_images, val_labels)
+            self._data_splits['train']['images'], self._data_splits['train']['labels'],
+            epochs=self.num_epochs, verbose=self._verbosity, batch_size=self.batch_size,
+            callbacks=self.get_model_callbacks(),
+            validation_data=(self._data_splits['validation']['images'], self._data_splits['validation']['labels'])
         )
         return self
 
     def evaluate(self):
-        self._eval_metrics = self.model.evaluate(test_images, test_labels, verbose=self._verbosity)
+        self._eval_metrics = self.model.evaluate(
+            self._data_splits['test']['images'], self._data_splits['test']['labels'], verbose=self._verbosity
+        )
         return self
 
     def display_dataset(self):
-        train_event_counts = train_filtered_df[target_column].value_counts()
-        val_event_counts = val_filtered_df[target_column].value_counts()
-        test_event_counts = test_filtered_df[target_column].value_counts()
+        train_event_counts = pd.Series(self._data_splits['train']['labels']).value_counts()
+        val_event_counts = pd.Series(self._data_splits['validation']['labels']).value_counts()
+        test_event_counts = pd.Series(self._data_splits['test']['labels']).value_counts()
 
-        train_img_shape = train_images.shape
-        val_img_shape = val_images.shape
-        test_img_shape = test_images.shape
+        train_img_shape = self._data_splits['train']['images'].shape
+        val_img_shape = self._data_splits['validation']['images'].shape
+        test_img_shape = self._data_splits['test']['images'].shape
+
+        train_images = self._data_splits['train']['images']
+        val_images = self._data_splits['validation']['images']
+        test_images = self._data_splits['test']['images']
+
+        train_labels = self._data_splits['train']['labels']
+        val_labels = self._data_splits['validation']['labels']
+        test_labels = self._data_splits['test']['labels']
 
         print('=====================================================================')
-        print(f'Data source: {", ".join(source_list)}')
-        print(f'Number of interpolation types: {len(interpolation_list)}')
-        print(f'\t{", ".join(interpolation_list)}')
-        print(f'Number of chosen beings: {len(chosen_beings)}')
-        print(f'\t{", ".join(chosen_beings)}')
-        print(f'Number of classes: {len(class_names)}')
-        print(f'\t{", ".join(class_names)}')
-        print(f'Number of entries in filtered dataset: {len(filtered_dataset)}')
+        print(f'Data source: {", ".join(self.source_list)}')
+        print(f'Number of interpolation types: {len(self.interpolation_list)}')
+        print(f'\t{", ".join(self.interpolation_list)}')
+        print(f'Number of chosen beings: {len(self.chosen_beings)}')
+        print(f'\t{", ".join(self.chosen_beings)}')
+        print(f'Number of classes: {len(self.class_names)}')
+        print(f'\t{", ".join(self.class_names)}')
+        print(f'Number of entries in filtered dataset: {len(self._filtered_dataframe)}')
         print('=====================================================================')
         print(f'Number train images: {len(train_images)} -> {len(train_labels)}')
         sep = '\t'
         for event_idx, event_count in train_event_counts.iteritems():
-            print(f'{sep}{class_names[event_idx]}: {event_count} '
+            print(f'{sep}{self.class_names[event_idx]}: {event_count} '
                   f'({(event_count * 100) / len(train_labels):0.4f} %)', end='')
             sep = ', '
         print()
@@ -317,7 +332,7 @@ class TfClassifier:
         print(f'Number validation images: {len(val_images)} -> {len(val_labels)}')
         sep = '\t'
         for event_idx, event_count in val_event_counts.iteritems():
-            print(f'{sep}{class_names[event_idx]}: {event_count} '
+            print(f'{sep}{self.class_names[event_idx]}: {event_count} '
                   f'({(event_count * 100) / len(val_labels):0.4f} %)', end='')
             sep = ', '
         print()
@@ -325,7 +340,7 @@ class TfClassifier:
         print(f'Number test images: {len(test_images)} -> {len(test_labels)}')
         sep = '\t'
         for event_idx, event_count in test_event_counts.iteritems():
-            print(f'{sep}{class_names[event_idx]}: {event_count} '
+            print(f'{sep}{self.class_names[event_idx]}: {event_count} '
                   f'({(event_count * 100) / len(test_labels):0.4f} %)', end='')
             sep = ', '
         print()
@@ -337,6 +352,14 @@ class TfClassifier:
         return
 
     def display_samples(self):
+        train_images = self._data_splits['train']['images']
+        val_images = self._data_splits['validation']['images']
+        test_images = self._data_splits['test']['images']
+
+        train_labels = self._data_splits['train']['labels']
+        val_labels = self._data_splits['validation']['labels']
+        test_labels = self._data_splits['test']['labels']
+
         show_top_samples(train_images, train_labels, title='Train', num_rows=5, num_cols=5)
         show_top_samples(val_images, val_labels, title='Validation', num_rows=5, num_cols=5)
         show_top_samples(test_images, test_labels, title='Test', num_rows=5, num_cols=5)
@@ -344,34 +367,36 @@ class TfClassifier:
 
     def display_metrics(self):
         print('==========================================================================')
-        print(f'Test loss: {eval_metrics[0]}', end='')
+        print(f'Test loss: {self._eval_metrics[0]}', end='')
         sep = '\n\t'
         # loss is the first value in 'eval_metrics' -> skip over it
-        eval_metrics = eval_metrics[1:]
-        for metric_index, each_metric in enumerate(metrics_list):
+        eval_metrics = self._eval_metrics[1:]
+        for metric_index, each_metric in enumerate(self.get_model_metrics()):
             print(f'{sep}{each_metric.name}: {eval_metrics[metric_index]:0.4f}', end='')
             sep = ', '
         print()
         print('==========================================================================')
-        test_predictions = model.predict(test_images, batch_size=b_size)
+        test_predictions = self.model.predict(self._data_splits['test']['images'], batch_size=self.batch_size)
         top_test_preds = [np.argmax(each_pred) for each_pred in test_predictions]
         plot_confusion_matrix(
-            y_pred=top_test_preds, y_true=test_labels, class_labels=class_names,
-            title=target_column, annotate_entries=False
+            y_pred=top_test_preds, y_true=self._data_splits['test']['labels'], class_labels=self.class_names,
+            title=self.target_column, annotate_entries=False
         )
-        plot_history_metric(train_history, 'accuracy')
-        plot_history_metric(train_history, 'loss')
+        plot_history_metric(self._train_history, 'accuracy')
+        plot_history_metric(self._train_history, 'loss')
         print('==========================================================================')
         return
 
     def display_model(self):
         print('==========================================================================')
         self.model.summary()
-        # pip install pydot
-        # pip install pydotplus
-        # pip install graphviz
-        #   https://www.graphviz.org/download/
-        #   Make sure that the directory containing the dot executable is on your system's path
+        """
+        pip install pydot
+        pip install pydotplus
+        pip install graphviz
+            https://www.graphviz.org/download/
+            Make sure that the directory containing the dot executable is on your system's path
+        """
         keras.utils.plot_model(
             self.model, os.path.join(self.output_dir, f'{self.model_name}_plot.png'), show_shapes=True
         )
@@ -379,29 +404,30 @@ class TfClassifier:
         return
 
     def save_model(self):
+        # todo
         with open(os.path.join(self.output_dir, f'{self.model_name}_metrics.txt'), 'a+') as metric_file:
-            # eval_metrics as dict
-            # add model weights
-            # add run params (subject, interp, etc)
-            # write json to file
+            """
+                eval_metrics as dict
+                add model weights
+                add run params (subject, interp, etc)
+                write json to file
+            """
             pass
         return
 
     def load_pretrained(self):
+        # todo
         return
 
 
 def main():
-    print(f'TensorFlow version: {tf.__version__}')
-    print(f'Eager execution: {tf.executing_eagerly()}')
-    #############################################
-    load_model = False
     verbosity = 1
-
-    display_dataset = False
-    display_samples = False
-    display_metrics = False
+    load_model = False
     save_model = False
+
+    display_dataset = True
+    display_samples = True
+    display_metrics = True
     display_model = True
     #############################################
     heatmap_dir = os.path.join(DATA_DIR, 'heatmaps')

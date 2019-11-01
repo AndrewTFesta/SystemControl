@@ -1,6 +1,4 @@
 todo add command line args to classifier
-todo move train/test/classification into class design
-todo break into options of load/train model
 todo save metrics
 
 todo look into tf image functions and fit_generator
