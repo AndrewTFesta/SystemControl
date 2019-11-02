@@ -2,22 +2,34 @@
 @title
 @description
 """
-import csv
 import os
+import shutil
 import sys
-from enum import Enum
+import time
+from enum import Enum, auto
+from functools import partial
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from mne import events_from_annotations
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
 from SystemControl.DataSource import DataSource
-from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, int_to_subject_str, SUBJECT_NUMS
+from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
+from SystemControl.utilities import find_files_by_type
+
+
+def plot_sample(xold, yold, xnew, ynew, type_str):
+    plt.plot(xold, yold, 'o')
+    plt.plot(xnew, ynew, '-')
+
+    plt.legend(['data', type_str], loc='best')
+    plt.show()
+    plt.close()
+    return
 
 
 class CMAP(Enum):
@@ -33,10 +45,9 @@ class Interpolation(Enum):
 
 class DataTransformer:
 
-    def __init__(self, data_source: DataSource, subject: int = 1, spacing: int = 50, cmap: CMAP = CMAP.rocket_r,
-                 interpolation: Interpolation = Interpolation.LINEAR,
-                 start_padding: float = 0.1, duration: float = 0.5, timing_resolution: float = 100.,
-                 debug: bool = False):
+    def __init__(self, data_source: DataSource, subject: str = '', spacing: int = 50, cmap: CMAP = CMAP.rocket_r,
+                 interpolation: Interpolation = Interpolation.LINEAR, start_padding: float = 0.1,
+                 duration: float = 0.5, timing_resolution: float = 100., debug: bool = False):
         self.data_source = data_source
 
         self._timing_resolution = timing_resolution
@@ -47,36 +58,44 @@ class DataTransformer:
         self._start_padding = int(start_padding * self._timing_resolution) / self._timing_resolution
         self._duration = int(duration * self._timing_resolution) / self._timing_resolution
 
-        self._raw_data = None
         self._data = None
         self._events = None
-        self._data_slices = None
-        self._image_slices = None
-        self._base_dir = None
         self._tqdm_base_desc = None
+
+        self.base_dir = None
+        self.data_slices = None
+        self.image_slices = None
 
         self.__init_data()
 
         self._debug = debug
         self._debug_len = 5
+        if debug:
+            self._spacing = 5
         return
 
     def __init_data(self):
-        if self.data_source and PhysioDataSource.validate_subject_num(self._subject):
-            self._raw_data = self.data_source.get_mi_right_left(self._subject)
-            self._data = self.data_source.get_data(self._raw_data)
-            self._events = events_from_annotations(self._raw_data)
-            self._base_dir = os.path.join(
+        if self.data_source and self._subject in self.data_source.SUBJECT_NAMES:
+            self._data = self.data_source.get_data(self._subject)
+            self._events = self.data_source.get_events(self._subject)
+
+            self.base_dir = os.path.join(
                 DATA_DIR, 'heatmaps',
                 self.data_source.__str__(),
                 f'spad_{int(self._start_padding * self._timing_resolution)}',
                 f'duration_{int(self._duration * self._timing_resolution)}',
                 self._interpolation.name,
-                int_to_subject_str(self._subject)
+                self._subject
             )
-            self._tqdm_base_desc = f'{self._subject}: {self._interpolation.name}'
-            self._data_slices = []
+            self.data_slices = []
         return
+
+    def __entry_id(self, data_entry: np.ndarray, sample_idx: int, event_str: str):
+        entry_str = f'{str(data_entry)}_{str(sample_idx)}_{event_str}_' \
+                    f'{self._subject}_{self._spacing}_{self._cmap}_{self._interpolation.name}' \
+                    f'{self._start_padding}_{self._duration}'
+        entry_hash = hash(entry_str)
+        return abs(entry_hash)
 
     def set_data_source(self, data_source):
         self.data_source = data_source
@@ -113,64 +132,25 @@ class DataTransformer:
         self.__init_data()
         return
 
-    @staticmethod
-    def event_from_id(event_dict, event_id):
-        for evt_key, evt_val in event_dict.items():
-            if evt_val == event_id:
-                evt_str = evt_key
-                break
-        else:
-            evt_str = None
-        return evt_str
-
-    def __entry_id(self, data_entry: np.ndarray, sample_idx: int, event_str: str):
-        entry_str = f'{str(data_entry)}_{str(sample_idx)}_{event_str}_' \
-                    f'{self._subject}_{self._spacing}_{self._cmap}_{self._interpolation.name}' \
-                    f'{self._start_padding}_{self._duration}'
-        entry_hash = hash(entry_str)
-        return abs(entry_hash)
-
-    def save_metadata(self):
-        if not os.path.isdir(self._base_dir):
-            os.makedirs(self._base_dir)
-        out_fname = os.path.join(self._base_dir, f'metadata_{int_to_subject_str(self._subject)}.csv')
-        entry_list = []
-        for each_entry in self._data_slices:
-            entry_dict = {
-                'id': each_entry['id'],
-                'type': each_entry['type'],
-                'spacing': self._spacing,
-                'color_map': self._cmap.name,
-                'start_padding': self._start_padding,
-                'duration': self._duration,
-                'interpolation': self._interpolation.name,
-            }
-            entry_list.append(entry_dict)
-        with open(out_fname, 'w+', newline='') as metafile:
-            w = csv.DictWriter(metafile, entry_list[-1].keys())
-            w.writeheader()
-            w.writerows(entry_list)
-        return
-
     def save_images(self):
-        pbar = tqdm(total=len(self._data_slices), desc=f'{self._tqdm_base_desc}: Saving images', file=sys.stdout)
-        for each_entry in self._data_slices:
+        if os.path.isdir(self.base_dir):
+            shutil.rmtree(self.base_dir)
+        for each_entry in self.data_slices:
             self.save_image_slice(each_entry)
-            pbar.update(1)
-        pbar.close()
         return
 
-    # noinspection PyTypeChecker
     def save_image_slice(self, slice_entry):
         image_slice = slice_entry['image_slice']
         event_type = slice_entry['type']
         image_id = slice_entry['id']
-        save_dir = os.path.join(self._base_dir, f'event_{event_type}')
+        save_dir = os.path.join(self.base_dir, f'event_{event_type}')
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
         out_fname = os.path.join(save_dir, f'{image_id}.png')
         heatmap = self.build_heatmap(image_slice)
-        cv2.imwrite(out_fname, heatmap)  # opencv faster than pillow: 2.63 it/s PIL vs 3.48 it/s CV2
+        # todo check speed of tensorflow img functions
+        # opencv faster than pillow: 2.63 it/s PIL vs 3.48 it/s CV2
+        cv2.imwrite(out_fname, heatmap)
         return
 
     def build_heatmap(self, image_slice):
@@ -187,82 +167,62 @@ class DataTransformer:
         return image_from_plot
 
     def build_all_images(self):
-        pbar = tqdm(total=len(self._data_slices), desc=f'{self._tqdm_base_desc}: Building images', file=sys.stdout)
-        for each_entry in self._data_slices:
+        for each_entry in self.data_slices:
             self.slice2img(each_entry)
-            pbar.update(1)
-        pbar.close()
         return
 
-    def slice2img(self, data_entry: dict, plot_interpolation: bool = False):
+    @staticmethod
+    def __interpolate_row(row_sample, num_rows, interp_type):
+        # add a zero before interpolation to lock either end to ground state
+        each_sample = np.insert(row_sample, 0, values=[0])
+        each_sample = np.append(each_sample, 0)
+
+        x = np.linspace(0, each_sample.shape[0], num=each_sample.shape[0], endpoint=False)
+        xnew = np.linspace(0, each_sample.shape[0] - 1, num=num_rows, endpoint=True)
+
+        interp_func = interp1d(x, each_sample, fill_value='extrapolate', kind=interp_type)
+        new_y = interp_func(xnew)
+        return new_y
+
+    def slice2img(self, data_entry: dict):
         data_slice = data_entry['slice']
+        data_list = [each_sample['data'] for each_sample in data_slice]
+        np_data = np.array(data_list)
+
+        # place one row between each and one at either end
+        # add number of rows once more to account for each signal
+        num_rows = (np_data.shape[1] + 1) * self._spacing + np_data.shape[1]
         interp_str = self._interpolation.name.lower()
-        num_cols = (data_slice.shape[1] + 1) * self._spacing + data_slice.shape[1]
-        lin_spaced_slice = []
-        for each_row in data_slice:
-            each_row = np.insert(each_row, 0, values=[0])
-            each_row = np.append(each_row, 0)
+        partial_interpolate = partial(self.__interpolate_row, num_rows=num_rows, interp_type=interp_str)
 
-            x = np.linspace(0, each_row.shape[0], num=each_row.shape[0], endpoint=False)
-            xnew = np.linspace(0, each_row.shape[0] - 1, num=num_cols, endpoint=True)
-
-            line_interp = interp1d(x, each_row, fill_value='extrapolate', kind=interp_str)
-            new_lin_y = line_interp(xnew)
-            lin_spaced_slice.append(new_lin_y)
-
-            if plot_interpolation:
-                self.plot_interpolation(x, each_row, xnew, new_lin_y, self._interpolation.name)
-        data_entry['image_slice'] = lin_spaced_slice
-        return lin_spaced_slice
-
-    @staticmethod
-    def plot_interpolation(x_vals, row_vals, xnew, liny, type_str):
-        plt.plot(x_vals, row_vals, 'o')
-        plt.plot(xnew, liny, '-')
-
-        plt.legend(['data', type_str], loc='best')
-        return
-
-    @staticmethod
-    def normalize_slice(np_slice):
-        np_slice = np.array(np_slice)
-        min_val = np.amin(np_slice)
-        np_slice = np_slice + abs(min_val)
-        max_val = np.amax(np_slice)
-        np_slice = np_slice / max_val
-        np_slice = np_slice.astype(np.float32)
-        np_slice = np.transpose(np_slice)
-        return np_slice
+        spaced_slice = list(map(partial_interpolate, np_data))
+        data_entry['image_slice'] = np.transpose(spaced_slice)
+        return spaced_slice
 
     def slice_data(self):
-        freq = self._raw_data.info['sfreq']
-
+        freq = self.data_source.sfreq
         num_start_samples_padding = int(freq * self._start_padding)
         num_samples_per_event = int(freq * self._duration)
 
-        event_list = self._events[0]
+        event_list = self._events
         if self._debug:
             event_list = event_list[:self._debug_len]
-        event_types = self._events[1]
-        d_transpose = np.transpose(self._data)
 
-        pbar = tqdm(total=len(event_list), desc=f'{self._tqdm_base_desc}: Slicing data', file=sys.stdout)
-        for event_idx, each_event in enumerate(event_list):
-            self.extract_slice(
-                each_event, event_types, num_samples_per_event, num_start_samples_padding, d_transpose
-            )
-            pbar.update(1)
-        pbar.close()
+        for each_event in event_list:
+            new_slice = self.extract_slice(each_event, self._data, num_samples_per_event, num_start_samples_padding)
+            if new_slice:
+                self.data_slices.append(new_slice)
         return
 
-    def extract_slice(self, slice_event, event_types, num_samples_per_event, num_start_samples_padding, data):
-        sample_idx = slice_event[0]
-        event_id = slice_event[2]
-        event_str = DataTransformer.event_from_id(event_types, event_id)
+    def extract_slice(self, event_info, data, num_samples_per_event, num_start_samples_padding):
+        sample_idx = event_info['idx']
+        event_str = event_info['event']
+
         start_sample_idx = sample_idx - num_start_samples_padding
         end_sample_idx = sample_idx + num_samples_per_event
 
         # only add to slice_list if data range is valid (non negative and not beyond bounds of d_transpose
+        slice_entry = {}
         if start_sample_idx >= 0 and end_sample_idx < len(data):
             data_slice = data[start_sample_idx:end_sample_idx]
             slice_entry = {
@@ -271,8 +231,7 @@ class DataTransformer:
                 'image_slice': None,
                 'type': event_str
             }
-            self._data_slices.append(slice_entry)
-        return
+        return slice_entry
 
 
 def main():
@@ -281,37 +240,83 @@ def main():
     row_spacing: int = 100
     interp: Interpolation = Interpolation.LINEAR
 
-    start_pad_points = 3
-    start_pad_step = 0.05
+    start_pad_points = 1
+    start_pad_step = 0.1
 
     duration_points = 5
     duration_step = 0.1
 
+    data_source_list = [PhysioDataSource()]
     start_padding_list: list = [(idx + 1) * start_pad_step for idx in range(0, start_pad_points)]
     duration_list = [(idx + 1) * duration_step for idx in range(0, duration_points)]
+    enum_members = list(Interpolation.__members__.values())
+    valid_subject_names = data_source_list[0].SUBJECT_NAMES
 
-    physio_data_source = PhysioDataSource()
-    data_transformer = DataTransformer(
-        physio_data_source, subject=1, spacing=row_spacing, cmap=CMAP.rocket_r, interpolation=interp,
-        start_padding=start_padding_list[0], duration=duration_list[0], debug=debug
-    )
+    # todo data only relies on data_source and subject
+    # todo slicing only relies on spad and duration
+    # todo image creation only relies on interpolation
 
-    for each_start in start_padding_list:
-        data_transformer.set_start_padding(each_start)
-        for each_duration in duration_list:
-            data_transformer.set_duration(each_duration)
-            for each_enum in Interpolation:
-                data_transformer.set_interpolation(each_enum)
-                for each_subject in SUBJECT_NUMS:
-                    try:
-                        data_transformer.set_subject(each_subject)
+    num_calls = len(data_source_list)
+    num_calls *= len(start_padding_list)
+    num_calls *= len(duration_list)
+    num_calls *= len(enum_members)
+    num_calls *= len(valid_subject_names)
 
-                        data_transformer.slice_data()
-                        data_transformer.build_all_images()
-                        data_transformer.save_images()
-                        data_transformer.save_metadata()
-                    except Exception as e:
-                        print(str(e))
+    timings_list = []
+    pbar = tqdm(total=num_calls, desc=f'', file=sys.stdout)
+    for each_data_source in data_source_list:
+        data_transformer = DataTransformer(
+            each_data_source, subject=valid_subject_names[0], spacing=row_spacing, cmap=CMAP.rocket_r,
+            interpolation=interp,
+            start_padding=start_padding_list[0], duration=duration_list[0], debug=debug
+        )
+
+        for each_start in start_padding_list:
+            data_transformer.set_start_padding(each_start)
+            for each_duration in duration_list:
+                data_transformer.set_duration(each_duration)
+                for each_enum in enum_members:
+                    data_transformer.set_interpolation(each_enum)
+                    for each_subject in valid_subject_names:
+                        try:
+                            data_transformer.set_subject(each_subject)
+                            base_desc = f'{each_data_source.__str__()}: {each_start}: {each_duration}: ' \
+                                        f'{each_enum}: {each_subject}'
+
+                            start_time = time.time()
+                            pbar.set_description(f'{base_desc}: Validating existing images')
+                            img_paths = find_files_by_type('png', root_dir=data_transformer.base_dir)
+                            num_exist_imgs = len(img_paths)
+
+                            pbar.set_description(f'{base_desc}: Slicing data')
+                            data_transformer.slice_data()
+                            if num_exist_imgs > len(data_transformer.data_slices):
+                                shutil.rmtree(data_transformer.base_dir)
+                                num_exist_imgs = 0
+
+                            if num_exist_imgs < len(data_transformer.data_slices):
+                                pbar.set_description(f'{base_desc}: Building images')
+                                data_transformer.build_all_images()
+                                pbar.set_description(f'{base_desc}: Saving images')
+                                data_transformer.save_images()
+
+                            end_time = time.time()
+                            d_time = end_time - start_time
+                            timings_list.append(d_time)
+                        except Exception as e:
+                            print(str(e))
+                        finally:
+                            pbar.update(1)
+    pbar.close()
+
+    out_dir = os.path.join(DATA_DIR, 'output', 'timings')
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+
+    timing_fname = os.path.join(out_dir, f'dataset_generation_{num_calls}.txt')
+    with open(timing_fname, 'w+') as timing_file:
+        for each_timing in timings_list:
+            timing_file.write(f'{each_timing}\n')
     return
 
 

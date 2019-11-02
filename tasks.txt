@@ -2,6 +2,13 @@ todo add command line args to classifier
 todo metric subplots all on one figure
 todo look into tf image functions and fit_generator
 
+todo eval metrics - cos_similarity, categorical_hinge, mae, mse
+todo tune stopping criteria
+todo iterator for data source
+
+todo fix visualizer
+todo add running classifier to visualizer
+
 todo load project bci data
 
 todo build dataset of csp features
@@ -10,8 +17,6 @@ todo build log reg classifier (scikit learn)
 
 todo move 'main's into notebooks
 todo move scripts into notebooks
-todo timing analysis of generating images for dataset
-todo refactor to move functionality to correct classes
 todo docs
 
 todo log recorded data based on subject name

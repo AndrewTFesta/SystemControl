@@ -9,9 +9,6 @@ from SystemControl import LOG_DIR
 
 
 class SystemLogLevel(Enum):
-    """
-    todo docs
-    """
     DEBUG = 0
     LOW = 10
     NORMAL = 20
@@ -23,7 +20,7 @@ class SystemLogLevel(Enum):
 
     def __eq__(self, other):
         """
-        todo docs
+
         :param other:
         :return:
         """
@@ -31,7 +28,7 @@ class SystemLogLevel(Enum):
 
     def __ge__(self, other):
         """
-        todo docs
+
         :param other:
         :return:
         """
@@ -39,7 +36,7 @@ class SystemLogLevel(Enum):
 
     def __le__(self, other):
         """
-        todo docs
+
         :param other:
         :return:
         """
@@ -54,12 +51,12 @@ class SystemLogIdent(Enum):
 
 class SystemLog:
     """
-    todo docs
+
     """
 
     def __init__(self, log_level: SystemLogLevel = SystemLogLevel.NORMAL, log_location: str = LOG_DIR):
         """
-        todo docs
+
         :param log_level:
         :param log_location:
         """
@@ -74,7 +71,7 @@ class SystemLog:
 
     def log_message(self, message_ident: SystemLogIdent, message_string: str, message_level: SystemLogLevel):
         """
-        todo docs
+
         :param message_ident:
         :param message_string:
         :param message_level:
@@ -89,7 +86,7 @@ class SystemLog:
 
     def __add_to_log(self, log_message: str) -> None:
         """
-        todo docs
+
         :param log_message:
         :return:
         """
@@ -99,7 +96,7 @@ class SystemLog:
 
     def flush_log(self) -> None:
         """
-        todo docs
+
         :return:
         """
         with self.log_lock:

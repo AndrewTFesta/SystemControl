@@ -11,8 +11,7 @@ from bokeh.plotting import figure
 from bokeh.server.server import Server
 from mne import events_from_annotations
 
-from SystemControl import DATABASE_URL
-from SystemControl.DataSource import SqlDb, DataSource
+from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioEvent, PhysioDataSource
 
 
@@ -21,22 +20,17 @@ class EegVisualizer:
     MAX_HEIGHT = 800
     POINTS_PRE_UPDATE = 1
 
-    def __init__(self, data_source: DataSource, subject: int = 1):
+    def __init__(self, data_source: DataSource, subject: str):
         self.data_source = data_source
         self.subject = subject
 
-        self.raw_data = self.data_source.get_mi_right_left(self.subject)
-        self.data = self.data_source.get_data(self.raw_data)
-        self.events = self.data_source.get_annotations(self.raw_data)
+        self.data = self.data_source.get_data(self.subject)
+        self.events = self.data_source.get_events(self.subject)
 
-        evts = events_from_annotations(self.raw_data)
-        self.event_times = evts[0]
+        self.update_delay = 1. / self.data_source.sfreq
 
-        self.sfreq = self.raw_data.info['sfreq']
-        self.update_delay = 1. / self.sfreq
-
-        self.x_len = int(self.sfreq)
-        self.channel_names = self.data_source.get_channel_names(self.raw_data)
+        self.x_len = int(self.data_source.sfreq)
+        self.channel_names = self.data_source.COI
 
         self.max_abs_val = 20E-5
 
@@ -72,19 +66,13 @@ class EegVisualizer:
         # implicitly assumes a parameter tick
         #       tick: x value of this point on the plot
         # requires installation of package: pscript
-        x_tick_code = """
-            return tick / {:0.2f}
-        """.format(self.sfreq)
+        x_tick_code = f"""
+            function format_x_tick(x) {{
+                return tick / {self.data_source.sfreq:0.2f}
+            }}
+            return format_x_tick(tick)
+        """
         self.figure.xaxis.formatter = FuncTickFormatter(code=x_tick_code)
-
-        # todo set yticks based on vertical offset
-        # y_tick_code = f"""
-        #     function format_y_tick(x) {{
-        #         return (tick % {self.max_abs_val}).toExponential(2);
-        #     }}
-        #     return format_y_tick(tick)
-        # """
-        # self.figure.yaxis.formatter = FuncTickFormatter(code=y_tick_code)
 
         for each_channel in self.channel_names:
             new_line = self.figure.segment(
@@ -168,17 +156,10 @@ class EegVisualizer:
         self.server.run_until_shutdown()
         return
 
-    def plot_data(self, tmin, tmax, with_events: bool = False):
-        # todo
-        return
-
 
 def main():
-    subject = 1
-
-    db_path = DATABASE_URL
-    database = SqlDb.SqlDb(db_path)
-    physio_ds = PhysioDataSource(database)
+    physio_ds = PhysioDataSource()
+    subject = PhysioDataSource.SUBJECT_NAMES[0]
 
     eeg_visualizer = EegVisualizer(physio_ds, subject)
     eeg_visualizer.run()

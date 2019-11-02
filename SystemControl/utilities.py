@@ -130,6 +130,16 @@ def get_path_var():
     return os.environ.get('PATH', None)
 
 
+def idx_to_time(idx, freq) -> float:
+    time_val = idx / freq
+    return time_val
+
+
+def time_to_idx(time_val, freq) -> float:
+    idx = time_val * freq
+    return idx
+
+
 def in_ipynb() -> bool:
     """
     Checks if the environment of the current runtime is an IPython environment.
@@ -150,7 +160,6 @@ def in_ipynb() -> bool:
 
 def split_paragraph(line_string: str, max_line_length: int = 60) -> list:
     """
-    TODO    docs
 
     :param line_string:
     :param max_line_length:
@@ -176,7 +185,6 @@ def split_paragraph(line_string: str, max_line_length: int = 60) -> list:
 
 def extract_fname_from_url(url_path):
     """
-    todo    docs
 
     :param url_path:
     :return:
@@ -189,7 +197,6 @@ def extract_fname_from_url(url_path):
 
 def extract_ext_from_url(url_path):
     """
-    todo    docs
 
     :param url_path:
     :return:
@@ -203,7 +210,6 @@ def extract_ext_from_url(url_path):
 def download_large_file(url_path, save_directory, c_size: int = 512,
                         file_type=None, remote_fname_name=None, force_download=False):
     """
-    todo    docs
     TODO    get file type from header
     TODO    get file name from header
 
@@ -276,7 +282,6 @@ def download_large_file(url_path, save_directory, c_size: int = 512,
 
 def unzip_file(zip_filename, save_directory, force_unzip=False, remove_zip=False) -> str:
     """
-    todo    docs
 
     :param zip_filename:
     :param save_directory:

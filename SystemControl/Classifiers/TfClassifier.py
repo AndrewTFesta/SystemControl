@@ -29,7 +29,7 @@ from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.DataSource.PhysioDataSource import SUBJECT_NAMES, PhysioDataSource
+from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
 from SystemControl.DataTransformer import Interpolation
 from SystemControl.utilities import find_files_by_type, filter_list_of_dicts, find_files_by_name
 
@@ -128,6 +128,7 @@ TrainParameters = collections.namedtuple(
     'TrainParameter',
     [
         'chosen_beings', 'interpolation_list', 'source_list', 'target_column',
+        'start_padding', 'duration',
         'img_dims', 'learning_rate', 'batch_size', 'num_epochs'
     ]
 )
@@ -136,7 +137,8 @@ TrainParameters = collections.namedtuple(
 class TfClassifier:
 
     def __init__(self, base_data_directory, chosen_beings: list, interpolation_types: list, sources: list,
-                 target: str = 'event', mdl_name: str = None, preload: bool = '', verbosity: int = 1,
+                 start_padding: list, duration: list, target: str = 'event', mdl_name: str = None,
+                 preload: bool = '', verbosity: int = 1,
                  learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
                  resize_height: int = 256, resize_width: int = 224, rand_seed: int = 42):
         time_stamp = time.strftime('%d_%b_%Y_%H_%M_%S', time.gmtime())
@@ -146,6 +148,7 @@ class TfClassifier:
 
         self._train_params = TrainParameters(
             chosen_beings=chosen_beings, interpolation_list=interpolation_types, source_list=sources,
+            start_padding=start_padding, duration=duration,
             target_column=target, img_dims=[resize_width, resize_height], learning_rate=learning_rate,
             batch_size=batch_size, num_epochs=num_epochs
         )
@@ -175,9 +178,13 @@ class TfClassifier:
             event_type = file_parts[-2]
             file_subject = file_parts[-3]
             file_interp = file_parts[-4]
-            file_source = file_parts[-5]
-            data_entry = {'event': event_type, 'subject': file_subject, 'interpolation': file_interp,
-                          'source': file_source, 'id': file_id, 'path': each_file}
+            file_duration = file_parts[-5]
+            file_spad = file_parts[-6]
+            file_source = file_parts[-7]
+            data_entry = {
+                'event': event_type, 'subject': file_subject, 'interpolation': file_interp, 'start_padding': file_spad,
+                'duration': file_duration, 'source': file_source, 'id': file_id, 'path': each_file
+            }
             data_list.append(data_entry)
         return data_list
 
@@ -483,22 +490,25 @@ def main():
     load_model = False
     train_model = True
 
-    display_dataset = False
+    display_dataset = True
     display_samples = False
     display_metrics = True
     display_model = False
     #############################################
+
     heatmap_dir = os.path.join(DATA_DIR, 'heatmaps')
     target_column = 'event'
-    num_subjects = 20
+    num_subjects = 10
     num_epochs = 10
     b_size = 1
     lr = 1e-4
     #############################################
     rand_seed = 42
     rand_generator = random.Random(rand_seed)
-    chosen_beings = sorted(rand_generator.sample(SUBJECT_NAMES, k=num_subjects))
+    chosen_beings = sorted(rand_generator.sample(PhysioDataSource.SUBJECT_NAMES, k=num_subjects))
 
+    padding_list = ['spad_10']
+    duration_list = ['duration_10']
     source_list = [PhysioDataSource.NAME]
     interpolation_list = [
         Interpolation.LINEAR.name,
@@ -509,6 +519,7 @@ def main():
     tf_classifier = TfClassifier(
         heatmap_dir,
         chosen_beings=chosen_beings, interpolation_types=interpolation_list, sources=source_list,
+        start_padding=padding_list, duration=duration_list,
         target=target_column, preload=load_model, verbosity=verbosity,
         num_epochs=num_epochs, batch_size=b_size, learning_rate=lr
     )
