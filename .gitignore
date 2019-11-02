@@ -1,12 +1,15 @@
 .idea/*
 venv/*
 venv_gpu/*
-logs/
-data/
+logs/*
+data/*
 
 *.pyc
 SystemControl/*.pyc
 
-notebooks/.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/*
 
-SystemControl.egg-info/
+SystemControl.egg-info/*
+
+
+SystemControl/OBciPython/OpenBCI_GUI/*

@@ -13,7 +13,7 @@ IMAGES_DIR = os.path.join(RESOURCE_DIR, 'images')
 
 OBCI_PYTHON_DIR = os.path.join(SOURCE_PACKAGE, 'OBciPython',)
 OPENBCI_HUB_NAME = 'OpenBCIHub.exe'
-HUB_EXE = os.path.join(OBCI_PYTHON_DIR, 'OpenBCIHub', OPENBCI_HUB_NAME)
+HUB_EXE = os.path.join(OBCI_PYTHON_DIR, 'OpenBCI_GUI', 'data', 'OpenBCIHub', OPENBCI_HUB_NAME)
 
 LOG_DIR = os.path.join(PROJECT_PATH, 'logs')
 DATA_DIR = os.path.join(PROJECT_PATH, 'data')

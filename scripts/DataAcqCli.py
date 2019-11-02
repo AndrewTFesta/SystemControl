@@ -7,8 +7,8 @@ import threading
 from time import sleep
 
 import SystemControl
-from SystemControl.OBciPython import MenuFunctions
-from SystemControl.OBciPython.HubCommunicator import HubCommunicator
+from SystemControl.OBciPython.EHub import MenuFunctions
+from SystemControl.OBciPython.EHub.HubCommunicator import HubCommunicator
 from SystemControl.SystemLog import SystemLogLevel
 
 

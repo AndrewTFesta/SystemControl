@@ -22,3 +22,15 @@ todo docs
 todo log recorded data based on subject name
 todo parse recorded events and data
 todo load recorded data
+
+sept 17
+	matlab script for 1d data
+	separate directories for 1d data versus 2d data
+
+	python script for reading in data
+	convert script to data class
+	store data in database
+	update readme
+	create system architecture diagram
+	structure thesis sections
+	test h5py vs messagepack vs thrift
