@@ -5,9 +5,6 @@
 import mne
 from mne.io.edf.edf import RawEDF
 
-from SystemControl import DATABASE_URL
-from SystemControl.DataSource import SqlDb
-
 
 class EventAnnotation:
     # TODO  figure out data that should be stored - look at MNE
@@ -22,17 +19,7 @@ class EventAnnotation:
 class DataSource:
     NAME = 'default'
 
-    def __init__(self, database: SqlDb, mne_log_level: str = 'WARNING'):
-        # todo  incorporate sql backend for storing/loading data
-        if not database:
-            database = SqlDb.SqlDb()
-        self.database = database
-        if not self.database.is_connected():
-            print(f'Connection not yet established: connecting to db: {self.database.db_path}')
-            self.database.connect()
-        else:
-            print(f'Connection already established: {self.database.db_path}')
-
+    def __init__(self, mne_log_level: str = 'WARNING'):
         mne.set_log_level(mne_log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
         return
 
@@ -59,10 +46,7 @@ class DataSource:
 
 
 def main():
-    db_path = DATABASE_URL
-    database = SqlDb.SqlDb(db_path)
-
-    ds = DataSource(database)
+    ds = DataSource()
     return
 
 

@@ -26,10 +26,8 @@ class RecordedDataSource(DataSource):
     RECORDED_TABLE_NAME = 'recorded_data'
 
     def __init__(self, database: SqlDb):
-        # todo  make separate classes to handle datasets
-        #       data separate from impedance or make impedance property of channel dataset?
+        # todo  data separate from impedance or make impedance property of channel dataset?
         #       add annotation tracking
-        #       integrate with pandas
         super().__init__(database)
         self.impedance: dict = {
             'channel_0': -1,

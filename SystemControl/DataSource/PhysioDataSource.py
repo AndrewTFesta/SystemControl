@@ -21,15 +21,19 @@
             the right fist (in runs 3, 4, 7, 8, 11, and 12)
             both feet (in runs 5, 6, 9, 10, 13, and 14)
 """
+import os
+import shutil
+import time
 from enum import Enum
 
 import mne
+import urllib.parse
 from mne.io import read_raw_edf
 from mne.io.edf.edf import RawEDF as RawEDF
 
-from SystemControl import DATABASE_URL
-from SystemControl.DataSource import SqlDb
+from SystemControl import DATA_DIR
 from SystemControl.DataSource.DataSource import DataSource
+from SystemControl.utilities import download_large_file, unzip_file, find_files_by_type
 
 
 def int_to_subject_str(subject_int):
@@ -49,7 +53,6 @@ class PhysioEvent(Enum):
 class PhysioEntry:
 
     def __init__(self, fname, subject, run, data):
-        # TODO make compatible with storing in sql
         self.fname = fname
         self.subject = subject
         self.run = run
@@ -63,17 +66,74 @@ RUN_NUMS = list(range(1, 14))
 RUN_NAMES = [int_to_run_str(each_run) for each_run in RUN_NUMS]
 
 
+def extract_info_from_fname(file_name):
+    with open(file_name, 'rb+') as physio_file_data:
+        physio_bytes = physio_file_data.read()
+
+    file_info, _ = os.path.splitext(os.path.basename(file_name))
+    subject_name = file_info[:4]
+    run_num = file_info[4:]
+
+    physio_entry = {
+        'fname': file_name,
+        'subject': subject_name,
+        'run': run_num,
+        'data': physio_bytes
+    }
+    return physio_entry
+
+
 class PhysioDataSource(DataSource):
-    PHYSIO_TABLE_NAME = 'physio_data'
     COI = ['C3', 'Cz', 'C4']
     NAME = 'Physio'
 
-    def __init__(self, database: SqlDb):
-        super().__init__(database)
+    def __init__(self):
+        super().__init__()
+        self.dataset_directory = os.path.join(DATA_DIR, self.__str__())
+        self._data = self.__load_data()
         return
 
     def __str__(self):
         return self.NAME
+
+    def __load_data(self):
+        # todo add check if files already exist on disk
+        external_name = 'eeg-motor-movementimagery-dataset-1.0.0'
+        external_zip_url = urllib.parse.urljoin(
+            'https://physionet.org/static/published-projects/eegmmidb/',
+            f'{external_name}.zip'
+        )
+        zip_name = download_large_file(
+            external_zip_url,
+            self.dataset_directory,
+            c_size=512,
+            file_type=None,
+            remote_fname_name=None,
+            force_download=False
+        )
+        if not zip_name:
+            print(f'Error downloading zip file: {zip_name}')
+            return
+
+        unzip_path = unzip_file(zip_name, self.dataset_directory, force_unzip=False)
+        if not unzip_path:
+            print(f'Error unzipping file file: {zip_name}')
+            return
+
+        time_start = time.time()
+        physio_files = find_files_by_type(file_type='edf', root_dir=self.dataset_directory)
+        time_end = time.time()
+        print('Time to find edf files: {:.4f} seconds'.format(time_end - time_start))
+        print('Found {} EDF files'.format(len(physio_files)))
+
+        for each_file in physio_files:
+            fname = os.path.basename(each_file)
+            new_path = os.path.join(self.dataset_directory, fname)
+            shutil.move(each_file, new_path)
+        # shutil.rmtree(os.path.join(self.dataset_directory, external_name))
+
+        moved_files = find_files_by_type(file_type='edf', root_dir=self.dataset_directory)
+        return moved_files
 
     @staticmethod
     def validate_subject_num(subject_num) -> bool:
@@ -81,7 +141,6 @@ class PhysioDataSource(DataSource):
 
     @staticmethod
     def clean_raw_edf(raw_edf):
-        # todo  improve
         cleaned_raw_edf = raw_edf.copy()
 
         # strip channel names of "." characters
@@ -91,6 +150,14 @@ class PhysioDataSource(DataSource):
         # Apply band-pass filter
         cleaned_raw_edf = cleaned_raw_edf.filter(7., 30., fir_design='firwin', skip_by_annotation='edge')
         return cleaned_raw_edf
+
+    def __find_edf_file(self, subject_str, run_str):
+        edf_basename = f'{subject_str}{run_str}.edf'
+        matching_path = None
+        for each_file in self._data:
+            if each_file.endswith(edf_basename):
+                matching_path = each_file
+        return matching_path
 
     def get_raw_trial(self, subject: int, run: int) -> RawEDF:
         if not isinstance(subject, int):
@@ -106,11 +173,8 @@ class PhysioDataSource(DataSource):
         subject_str = int_to_subject_str(subject)
         run_str = int_to_run_str(run)
 
-        filter_dict = {'subject': subject_str, 'run': run_str}
-        table_rows = self.database.get_table_rows(self.PHYSIO_TABLE_NAME, filter_dict)
-
-        edf_fnames = [each_entry[1] for each_entry in table_rows]
-        raw_edf = mne.concatenate_raws([read_raw_edf(fname, preload=True) for fname in edf_fnames])
+        edf_fname = self.__find_edf_file(subject_str, run_str)
+        raw_edf = read_raw_edf(edf_fname, preload=True)
         raw_edf = self.clean_raw_edf(raw_edf)
         return raw_edf
 
@@ -144,8 +208,6 @@ class PhysioDataSource(DataSource):
     @staticmethod
     def get_data(raw_edf: RawEDF) -> list:
         raw_data = raw_edf.get_data()
-        # raw_data = np.transpose(raw_data)
-
         data_list = []
         for each_row in raw_data:
             data_list.append(each_row)
@@ -180,25 +242,12 @@ def main():
     """
     subject = 1
 
-    db_path = DATABASE_URL
-    database = SqlDb.SqlDb(db_path)
-
-    physio_ds = PhysioDataSource(database)
+    physio_ds = PhysioDataSource()
     raw_data = physio_ds.get_mi_right_left(subject=subject)
     print(f'Raw data is type: {type(raw_data)}')
 
     annots = PhysioDataSource.get_annotations(raw_data)
     events = physio_ds.get_events(raw_data)
-
-    test_time = physio_ds.idx_to_time(raw_data, 1)
-    print(test_time)
-
-    test_time = physio_ds.idx_to_time(raw_data, 160)
-    print(test_time)
-
-    test_time = physio_ds.idx_to_time(raw_data, 320)
-    print(test_time)
-    # todo refactor to use h5py
     return
 
 

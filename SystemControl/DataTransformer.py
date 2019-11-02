@@ -15,8 +15,8 @@ from mne import events_from_annotations
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
-from SystemControl import DATABASE_URL, DATA_DIR
-from SystemControl.DataSource import DataSource, SqlDb
+from SystemControl import DATA_DIR
+from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, int_to_subject_str, SUBJECT_NUMS
 
 
@@ -34,16 +34,18 @@ class Interpolation(Enum):
 class DataTransformer:
 
     def __init__(self, data_source: DataSource, subject: int = 1, spacing: int = 50, cmap: CMAP = CMAP.rocket_r,
-                 interpolation: Interpolation = Interpolation.LINEAR, start_padding: float = 0.1, duration: float = 0.5,
+                 interpolation: Interpolation = Interpolation.LINEAR,
+                 start_padding: float = 0.1, duration: float = 0.5, timing_resolution: float = 100.,
                  debug: bool = False):
         self.data_source = data_source
 
+        self._timing_resolution = timing_resolution
         self._subject = subject
         self._spacing = spacing
         self._cmap = cmap
         self._interpolation = interpolation
-        self._start_padding = int(start_padding * 100) / 100.
-        self._duration = int(duration * 100) / 100.
+        self._start_padding = int(start_padding * self._timing_resolution) / self._timing_resolution
+        self._duration = int(duration * self._timing_resolution) / self._timing_resolution
 
         self._raw_data = None
         self._data = None
@@ -67,8 +69,8 @@ class DataTransformer:
             self._base_dir = os.path.join(
                 DATA_DIR, 'heatmaps',
                 self.data_source.__str__(),
-                str(int(self._start_padding * 100)),
-                str(int(self._duration * 100)),
+                f'spad_{int(self._start_padding * self._timing_resolution)}',
+                f'duration_{int(self._duration * self._timing_resolution)}',
                 self._interpolation.name,
                 int_to_subject_str(self._subject)
             )
@@ -274,33 +276,35 @@ class DataTransformer:
 
 
 def main():
-    # todo track time to run functions
-    # todo only load data that is missing
-    # todo validate dataset
-    row_spacing: int = 100
-    interp: Interpolation = Interpolation.LINEAR
-    start_padding_list: list = [0.1]
-    duration_list: list = [0.5]
     debug = False
 
-    db_path = DATABASE_URL
-    database = SqlDb.SqlDb(db_path)
-    physio_data_source = PhysioDataSource(database)
+    row_spacing: int = 100
+    interp: Interpolation = Interpolation.LINEAR
 
+    start_pad_points = 3
+    start_pad_step = 0.05
+
+    duration_points = 5
+    duration_step = 0.1
+
+    start_padding_list: list = [(idx + 1) * start_pad_step for idx in range(0, start_pad_points)]
+    duration_list = [(idx + 1) * duration_step for idx in range(0, duration_points)]
+
+    physio_data_source = PhysioDataSource()
     data_transformer = DataTransformer(
         physio_data_source, subject=1, spacing=row_spacing, cmap=CMAP.rocket_r, interpolation=interp,
         start_padding=start_padding_list[0], duration=duration_list[0], debug=debug
     )
 
-    for each_subject in SUBJECT_NUMS:
-        for each_enum in Interpolation:
-            for each_start in start_padding_list:
-                for each_duration in duration_list:
+    for each_start in start_padding_list:
+        data_transformer.set_start_padding(each_start)
+        for each_duration in duration_list:
+            data_transformer.set_duration(each_duration)
+            for each_enum in Interpolation:
+                data_transformer.set_interpolation(each_enum)
+                for each_subject in SUBJECT_NUMS:
                     try:
                         data_transformer.set_subject(each_subject)
-                        data_transformer.set_interpolation(each_enum)
-                        data_transformer.set_start_padding(each_start)
-                        data_transformer.set_start_padding(each_duration)
 
                         data_transformer.slice_data()
                         data_transformer.build_all_images()

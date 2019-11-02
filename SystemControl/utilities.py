@@ -156,7 +156,6 @@ def split_paragraph(line_string: str, max_line_length: int = 60) -> list:
     :param max_line_length:
     :return:
     """
-    # TODO bug fix: wrap when line does not contain spaces
     word_list = line_string.split(' ')
     line_list = []
     current_line = ''
@@ -205,8 +204,6 @@ def download_large_file(url_path, save_directory, c_size: int = 512,
                         file_type=None, remote_fname_name=None, force_download=False):
     """
     todo    docs
-    todo    generalize to be able to download any zip file to custom directory
-    TODO    seems to generalize to downloading any large file
     TODO    get file type from header
     TODO    get file name from header
 
