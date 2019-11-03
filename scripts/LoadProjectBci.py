@@ -117,7 +117,7 @@ def main():
         eeg_db.delete_table(pbci_2d_table_name)
 
     print('Closing sql connection')
-    eeg_db.close()
+    close()
     return
 
 
