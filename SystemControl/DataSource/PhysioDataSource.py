@@ -113,27 +113,27 @@ class PhysioDataSource(DataSource):
         raise NotImplementedError('Adding samples to this type of DataSource is currently not supported')
 
     @property
-    def sample_freq(self):
-        return 160
+    def sample_freq(self) -> float:
+        return 160.
 
     @property
-    def name(self):
+    def name(self) -> str:
         return 'Physio'
 
     @property
-    def subject_names(self):
+    def subject_names(self) -> list:
         return [int_to_subject_str(each_subject) for each_subject in list(range(1, 110))]
 
     @property
-    def coi(self):
+    def coi(self) -> list:
         return ['C3', 'Cz', 'C4']
 
     @property
-    def trial_names(self):
+    def trial_names(self) -> list:
         return [int_to_run_str(each_run) for each_run in list(range(1, 15))]
 
     @property
-    def event_names(self):
+    def event_names(self) -> list:
         return ['T0', 'T1', 'T2']
 
     def __clean_raw_edf(self, raw_edf):
@@ -201,7 +201,7 @@ class PhysioDataSource(DataSource):
         entry_subject = f_basename[:4]
         entry_trial = f_basename[4:]
         sample_entry = {'path': fname, 'trial': entry_trial, 'is_valid': True}
-        
+
         subject_data_list = self._subject_data.get(entry_subject, None)
         if isinstance(subject_data_list, list):
             subject_data_list.append(sample_entry)
@@ -217,6 +217,9 @@ class PhysioDataSource(DataSource):
         time_end = time.time()
         print(f'Time to load subject data: {time_end - time_start:.4f} seconds')
         return
+
+    def save_data(self):
+        raise NotImplementedError('Saving this type of DataSource is currently not supported')
 
     def __validate_dataset(self) -> bool:
         if self._validated:

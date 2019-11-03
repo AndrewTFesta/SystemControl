@@ -19,40 +19,40 @@ class DataSource(ABC):
 
     @property
     @abstractmethod
-    def name(self):
+    def name(self) -> str:
         pass
 
     @property
     @abstractmethod
-    def sample_freq(self):
+    def sample_freq(self) -> float:
         pass
 
     @property
     @abstractmethod
-    def subject_names(self):
+    def subject_names(self) -> list:
         pass
 
     @property
     @abstractmethod
-    def coi(self):
+    def coi(self) -> list:
         pass
 
     @property
     @abstractmethod
-    def trial_names(self):
+    def trial_names(self) -> list:
         pass
 
     @property
     @abstractmethod
-    def event_names(self):
+    def event_names(self) -> list:
         pass
 
     @abstractmethod
-    def get_data(self):
+    def get_data(self) -> list:
         pass
 
     @abstractmethod
-    def get_events(self):
+    def get_events(self) -> list:
         pass
 
     @abstractmethod
@@ -61,6 +61,10 @@ class DataSource(ABC):
 
     @abstractmethod
     def load_data(self):
+        pass
+
+    @abstractmethod
+    def save_data(self):
         pass
 
 

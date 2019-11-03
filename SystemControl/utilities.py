@@ -210,8 +210,6 @@ def extract_ext_from_url(url_path):
 def download_large_file(url_path, save_directory, c_size: int = 512,
                         file_type=None, remote_fname_name=None, force_download=False):
     """
-    TODO    get file type from header
-    TODO    get file name from header
 
     :param url_path:
     :param file_type:

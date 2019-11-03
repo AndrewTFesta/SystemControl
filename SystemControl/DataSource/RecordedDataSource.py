@@ -22,39 +22,42 @@ class RecordedDataSource(DataSource):
         pass
 
     @property
-    def name(self):
+    def name(self) -> str:
         return 'Recorded'
 
     @property
-    def sample_freq(self):
-        pass
+    def sample_freq(self) -> float:
+        return 200
 
     @property
-    def subject_names(self):
-        pass
+    def subject_names(self) -> list:
+        return ['Me']
 
     @property
-    def coi(self):
-        pass
+    def coi(self) -> list:
+        return ['C3', 'Cz', 'C4']
 
     @property
-    def trial_names(self):
-        pass
+    def trial_names(self) -> list:
+        return ['sunday']
 
     @property
-    def event_names(self):
+    def event_names(self) -> list:
+        return ['rest', 'right', 'left']
+
+    def get_data(self) -> list:
         pass
 
-    def get_events(self, subject: str):
+    def get_events(self) -> list:
         pass
 
-    def append_sample(self, subject: str):
-        pass
-
-    def get_data(self, subject: str):
+    def append_sample(self):
         pass
 
     def load_data(self):
+        pass
+
+    def save_data(self):
         pass
 
 

@@ -4,7 +4,6 @@ todo look into tf image functions and fit_generator
 
 todo eval metrics - cos_similarity, categorical_hinge, mae, mse
 todo tune stopping criteria
-todo iterator for data source
 
 todo fix visualizer
 todo add running classifier to visualizer
@@ -23,14 +22,5 @@ todo log recorded data based on subject name
 todo parse recorded events and data
 todo load recorded data
 
-sept 17
-	matlab script for 1d data
-	separate directories for 1d data versus 2d data
-
-	python script for reading in data
-	convert script to data class
-	store data in database
-	update readme
-	create system architecture diagram
-	structure thesis sections
-	test h5py vs messagepack vs thrift
+todo create system architecture diagram
+todo structure thesis sections
