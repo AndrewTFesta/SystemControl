@@ -199,7 +199,7 @@ def main():
     physio_ds = PhysioDataSource()
 
     eeg_visualizer = BokehVisualizer(physio_ds, physio_ds.ascended_being)
-    eeg_visualizer.run(open_tab=False)
+    eeg_visualizer.run(open_tab=True)
     return
 
 
