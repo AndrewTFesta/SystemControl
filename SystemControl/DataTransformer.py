@@ -22,6 +22,19 @@ from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
 from SystemControl.utilities import find_files_by_type
 
+dtype_to_format = {
+    'uint8': 'uchar',
+    'int8': 'char',
+    'uint16': 'ushort',
+    'int16': 'short',
+    'uint32': 'uint',
+    'int32': 'int',
+    'float32': 'float',
+    'float64': 'double',
+    'complex64': 'complex',
+    'complex128': 'dpcomplex',
+}
+
 
 def plot_sample(xold, yold, xnew, ynew, type_str):
     plt.plot(xold, yold, 'o')
@@ -133,14 +146,16 @@ class DataTransformer:
         self.__init_data()
         return
 
-    def save_images(self):
+    def save_images(self, use_pyvips=True):
         if os.path.isdir(self.base_dir):
             shutil.rmtree(self.base_dir)
         for each_entry in self.data_slices:
-            self.save_image_slice(each_entry)
+            self.save_image_slice(each_entry, use_pyvips)
         return
 
-    def save_image_slice(self, slice_entry):
+    def save_image_slice(self, slice_entry, use_pyvips=True):
+        # todo parameterize save location
+        # todo force overwrite
         image_slice = slice_entry['image_slice']
         event_type = slice_entry['type']
         image_id = slice_entry['id']
@@ -151,15 +166,17 @@ class DataTransformer:
         heatmap = self.build_heatmap(image_slice)
         # todo check speed of tensorflow img functions
         # opencv faster than pillow: 2.63 it/s PIL vs 3.48 it/s CV2
-        cv2.imwrite(out_fname, heatmap)
-
-        # mask = pyvips.Image.new_from_array([[-1, -1, -1],
-        #                                     [-1, 16, -1],
-        #                                     [-1, -1, -1]
-        #                                     ], scale=8)
-        # # image = image.conv(mask, precision='integer')
-        # mask.write_to_file('x.jpg')
-        return
+        if use_pyvips:
+            height, width, bands = heatmap.shape
+            linear_heatmap = heatmap.reshape(width * height * bands)
+            vi = pyvips.Image.new_from_memory(
+                # linear_heatmap.data, width, height, bands, dtype_to_format[str(heatmap.dtype)]
+                linear_heatmap.data, width, height, bands, 'uchar'
+            )
+            vi.write_to_file(out_fname)
+        else:
+            cv2.imwrite(out_fname, heatmap)
+        return heatmap
 
     def build_heatmap(self, image_slice):
         heat_map = sns.heatmap(image_slice, xticklabels=False, yticklabels=False, cmap=self._cmap.name, cbar=False)
@@ -193,6 +210,7 @@ class DataTransformer:
         return new_y
 
     def slice2img(self, data_entry: dict):
+        # todo make except 2d array of values
         data_slice = data_entry['slice']
         data_list = [each_sample['data'] for each_sample in data_slice]
         np_data = np.array(data_list)
