@@ -3,11 +3,12 @@
 @description
 """
 from abc import ABC, abstractmethod
+from io import IOBase
 
 import mne
 
 
-class DataSource(ABC):
+class DataSource(ABC, IOBase):
 
     def __init__(self, mne_log_level: str = 'WARNING'):
         mne.set_log_level(mne_log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL

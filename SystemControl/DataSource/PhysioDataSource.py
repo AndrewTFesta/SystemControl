@@ -103,6 +103,7 @@ class PhysioDataSource(DataSource):
 
     def __iter__(self):
         data_points = self.get_data()
+        # todo add returning events to __iter__ functionality of datasource
         event_points = self.get_events()
 
         for each_sample in data_points:
@@ -284,6 +285,10 @@ class PhysioDataSource(DataSource):
         self._edf_file_list = find_files_by_type(file_type='edf', root_dir=self.dataset_directory)
         return
 
+    def read(self, size=-1):
+        print('test')
+        return 0
+
 
 def main():
     """
@@ -292,8 +297,10 @@ def main():
     """
     physio_ds = PhysioDataSource()
 
-    for each_datapoint in physio_ds:
-        print(each_datapoint)
+    read_data = physio_ds.read(1)
+    print(read_data)
+    # for each_datapoint in physio_ds:
+    #     print(each_datapoint)
     return
 
 
