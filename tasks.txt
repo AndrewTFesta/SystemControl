@@ -1,14 +1,15 @@
+todo fix visualizer
+todo add running classifier to visualizer
+todo guinetworking with obci gui
+todo log recorded data based on subject name
+todo parse recorded events and data
+todo load recorded data
+
 todo add command line args to classifier
 todo metric subplots all on one figure
 todo look into tf image functions and fit_generator
-
 todo eval metrics - cos_similarity, categorical_hinge, mae, mse
 todo tune stopping criteria
-
-todo fix visualizer
-todo add running classifier to visualizer
-
-todo load project bci data
 
 todo build dataset of csp features
 todo build svm classifier (scikit learn)
@@ -17,10 +18,6 @@ todo build log reg classifier (scikit learn)
 todo move 'main's into notebooks
 todo move scripts into notebooks
 todo docs
-
-todo log recorded data based on subject name
-todo parse recorded events and data
-todo load recorded data
 
 todo create system architecture diagram
 todo structure thesis sections
