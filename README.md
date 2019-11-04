@@ -4,4 +4,9 @@
 
 # Installation
 
+- vtk
+- graphviz
+- ffmpeg
+
 # Examples
+
