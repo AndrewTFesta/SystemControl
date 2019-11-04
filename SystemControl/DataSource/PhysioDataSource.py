@@ -107,8 +107,31 @@ class PhysioDataSource(DataSource):
         event_points = self.get_events()
 
         for each_sample in data_points:
-            yield each_sample
+            sample_time = each_sample['time']
+            curr_event = self.event_at_time(sample_time, event_points)
+            yield {'sample': each_sample, 'event': curr_event}
         pass
+
+    def event_at_time(self, time_val, event_list=None):
+        if not event_list:
+            event_list = self.get_events()
+
+        curr_event_idx = 1
+        event_entry = event_list[curr_event_idx]
+        last_time = event_entry['time']
+        while time_val > last_time:
+            curr_event_idx += 1
+            event_entry = event_list[curr_event_idx]
+            last_time = event_entry['time']
+        event_entry = event_list[curr_event_idx - 1]
+        return event_entry
+
+    def event_at_idx(self, sample_idx, event_list=None):
+        if not event_list:
+            event_list = self.get_events()
+        time_val = idx_to_time(sample_idx, self.sample_freq),
+        idx_event = self.event_at_time(time_val, event_list)
+        return idx_event
 
     def append_sample(self):
         raise NotImplementedError('Adding samples to this type of DataSource is currently not supported')
@@ -188,7 +211,7 @@ class PhysioDataSource(DataSource):
         event_list = list(event_indices.keys())
 
         timing_list = []
-        for each_timing in events_timings[1:]:
+        for each_timing in events_timings:
             timing_entry = {
                 'idx': each_timing[0],
                 'time': idx_to_time(each_timing[0], self.sample_freq),
@@ -299,8 +322,11 @@ def main():
 
     read_data = physio_ds.read(1)
     print(read_data)
-    # for each_datapoint in physio_ds:
-    #     print(each_datapoint)
+    for each_datapoint in physio_ds:
+        curr_sample = each_datapoint['sample']
+        curr_event = each_datapoint['event']
+
+        print(f'{curr_sample["time"]}: {curr_event["event"]}: {curr_sample["data"]}')
     return
 
 

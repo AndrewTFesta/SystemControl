@@ -12,6 +12,7 @@ from functools import partial
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+import pyvips
 import seaborn as sns
 from scipy.interpolate import interp1d
 from tqdm import tqdm
@@ -75,13 +76,13 @@ class DataTransformer:
         return
 
     def __init_data(self):
-        if self.data_source and self._subject in self.data_source.SUBJECT_NAMES:
-            self._data = self.data_source.get_data(self._subject)
-            self._events = self.data_source.get_events(self._subject)
+        if self.data_source and self._subject in self.data_source.subject_names:
+            self._data = self.data_source.get_data()  # todo set subject in datasource
+            self._events = self.data_source.get_events()
 
             self.base_dir = os.path.join(
                 DATA_DIR, 'heatmaps',
-                self.data_source.__str__(),
+                self.data_source.name,
                 f'spad_{int(self._start_padding * self._timing_resolution)}',
                 f'duration_{int(self._duration * self._timing_resolution)}',
                 self._interpolation.name,
@@ -151,6 +152,13 @@ class DataTransformer:
         # todo check speed of tensorflow img functions
         # opencv faster than pillow: 2.63 it/s PIL vs 3.48 it/s CV2
         cv2.imwrite(out_fname, heatmap)
+
+        # mask = pyvips.Image.new_from_array([[-1, -1, -1],
+        #                                     [-1, 16, -1],
+        #                                     [-1, -1, -1]
+        #                                     ], scale=8)
+        # # image = image.conv(mask, precision='integer')
+        # mask.write_to_file('x.jpg')
         return
 
     def build_heatmap(self, image_slice):
@@ -200,7 +208,7 @@ class DataTransformer:
         return spaced_slice
 
     def slice_data(self):
-        freq = self.data_source.sfreq
+        freq = self.data_source.sample_freq
         num_start_samples_padding = int(freq * self._start_padding)
         num_samples_per_event = int(freq * self._duration)
 
@@ -250,7 +258,7 @@ def main():
     start_padding_list: list = [(idx + 1) * start_pad_step for idx in range(0, start_pad_points)]
     duration_list = [(idx + 1) * duration_step for idx in range(0, duration_points)]
     enum_members = list(Interpolation.__members__.values())
-    valid_subject_names = data_source_list[0].SUBJECT_NAMES
+    valid_subject_names = data_source_list[0].subject_names
 
     # todo data only relies on data_source and subject
     # todo slicing only relies on spad and duration
@@ -280,7 +288,7 @@ def main():
                     for each_subject in valid_subject_names:
                         try:
                             data_transformer.set_subject(each_subject)
-                            base_desc = f'{each_data_source.__str__()}: {each_start}: {each_duration}: ' \
+                            base_desc = f'{each_data_source.name}: {each_start}: {each_duration}: ' \
                                         f'{each_enum}: {each_subject}'
 
                             start_time = time.time()

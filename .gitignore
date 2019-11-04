@@ -13,3 +13,4 @@ SystemControl.egg-info/*
 
 
 SystemControl/OBciPython/OpenBCI_GUI/*
+/SystemControl/sandbox.py

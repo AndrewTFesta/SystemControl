@@ -4,14 +4,14 @@ todo guinetworking with obci gui
 todo log recorded data based on subject name
 todo parse recorded events and data
 todo load recorded data
+todo build dataset of csp features
 
 todo add command line args to classifier
 todo metric subplots all on one figure
-todo look into tf image functions and fit_generator
+todo look into tf image functions, fit_generator, and pyvips
 todo eval metrics - cos_similarity, categorical_hinge, mae, mse
 todo tune stopping criteria
 
-todo build dataset of csp features
 todo build svm classifier (scikit learn)
 todo build log reg classifier (scikit learn)
 

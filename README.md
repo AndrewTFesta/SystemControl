@@ -7,6 +7,7 @@
 - vtk
 - graphviz
 - ffmpeg
-
+- libvips
+    https://pypi.org/project/pyvips/
 # Examples
 
