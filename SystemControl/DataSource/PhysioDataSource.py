@@ -65,8 +65,9 @@ def extract_info_from_fname(file_name):
 
 class PhysioDataSource(DataSource):
 
-    def __init__(self, chosen_subject: str = None):
-        super().__init__()
+    def __init__(self, chosen_subject: str = None, log_level: str = 'CRITICAL'):
+        mne.set_log_level(log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
+        super().__init__(log_level)
         self.dataset_directory = os.path.join(DATA_DIR, self.name)
 
         self.__baseline_trials = {
@@ -82,13 +83,8 @@ class PhysioDataSource(DataSource):
             'hands_feet': [int_to_run_str(each_run) for each_run in [6, 10, 14]]
         }
 
-        self.selected_trials = self.__motor_imagery_trials['right_left']
-        self.ascended_being = self.subject_names[0]
-        if chosen_subject in self.subject_names:
-            self.ascended_being = chosen_subject
-
         self._subject_data = {
-            # entry -> {'path': fname, 'trial': entry_trial, 'is_valid': True}
+            # entry -> {'path': str, 'trial': str, 'samples': list}
             subject_name: []
             for subject_name in self.subject_names
         }
@@ -99,42 +95,33 @@ class PhysioDataSource(DataSource):
             self.__download_dataset()
 
         self.load_data()
+
+        self.selected_trials = self.__motor_imagery_trials['right_left']
+        self.ascended_being = self.subject_names[0]
+        if chosen_subject in self.subject_names:
+            self.ascended_being = chosen_subject
+
+        self.__preload_user()
         return
 
     def __iter__(self):
-        data_points = self.get_data()
-        # todo add returning events to __iter__ functionality of datasource
-        event_points = self.get_events()
-
-        for each_sample in data_points:
-            sample_time = each_sample['time']
-            curr_event = self.event_at_time(sample_time, event_points)
-            yield {'sample': each_sample, 'event': curr_event}
+        trials = self.get_trials()
+        for each_trial in trials:
+            trial_samples = each_trial['samples']
+            for each_sample in trial_samples:
+                yield each_sample, each_trial['trial']
         pass
-
-    def event_at_time(self, time_val, event_list=None):
-        if not event_list:
-            event_list = self.get_events()
-
-        curr_event_idx = 1
-        event_entry = event_list[curr_event_idx]
-        last_time = event_entry['time']
-        while time_val > last_time:
-            curr_event_idx += 1
-            event_entry = event_list[curr_event_idx]
-            last_time = event_entry['time']
-        event_entry = event_list[curr_event_idx - 1]
-        return event_entry
-
-    def event_at_idx(self, sample_idx, event_list=None):
-        if not event_list:
-            event_list = self.get_events()
-        time_val = idx_to_time(sample_idx, self.sample_freq),
-        idx_event = self.event_at_time(time_val, event_list)
-        return idx_event
 
     def append_sample(self):
         raise NotImplementedError('Adding samples to this type of DataSource is currently not supported')
+
+    def set_subject(self, subject: str):
+        if subject not in self.subject_names:
+            raise ValueError(f'Designated subject is not a valid subject: {subject}')
+
+        self.ascended_being = subject
+        self.__preload_user()
+        return
 
     @property
     def sample_freq(self) -> float:
@@ -171,60 +158,75 @@ class PhysioDataSource(DataSource):
         cleaned_raw_edf = cleaned_raw_edf.filter(7., 30., fir_design='firwin', skip_by_annotation='edge')
         return cleaned_raw_edf
 
-    def get_data(self) -> list:
-        subject_entries = self._subject_data[self.ascended_being]
+    def __preload_user(self, subject: str = None):
+        if not subject:
+            subject = self.ascended_being
+
+        if subject not in self.subject_names:
+            raise ValueError(f'Designated subject is not a valid subject: {subject}')
+
+        subject_entries = self._subject_data[subject]
         relevant_trials = filter_list_of_dicts(subject_entries, {'trial': self.selected_trials})
 
-        raw_list = []
         for each_trial in relevant_trials:
             edf_path = each_trial['path']
             raw_edf = read_raw_edf(edf_path, preload=True, verbose='CRITICAL')
-            raw_list.append(raw_edf)
+            sample_list = self.__preload_trial(raw_edf)
+            each_trial['samples'] = sample_list
+        return
 
-        catted_raws = mne.concatenate_raws(raw_list)
-        cleaned_edf = self.__clean_raw_edf(catted_raws)
+    def __preload_trial(self, trial_edf):
+        cleaned_edf = self.__clean_raw_edf(trial_edf)
+
         data = cleaned_edf.get_data()
         np_data = np.transpose(data)
 
+        events_timings, event_indices = mne.events_from_annotations(cleaned_edf)
+        sorted_event_times = events_timings[events_timings[:, 0].argsort()]
+        event_onset_list = sorted_event_times[:, 0]
+
+        next_event_idx = 0
         timing_list = []
         for sample_idx, each_sample in enumerate(np_data):
+            if sample_idx in event_onset_list:
+                next_event_idx += 1
+            curr_event = sorted_event_times[next_event_idx - 1]
+
             timing_entry = {
                 'idx': sample_idx,
                 'time': idx_to_time(sample_idx, self.sample_freq),
+                'event': curr_event,
                 'data': each_sample
             }
             timing_list.append(timing_entry)
         return timing_list
 
-    def get_events(self) -> list:
-        subject_entries = self._subject_data[self.ascended_being]
+    def stream_interpolation(self):
+        # todo
+        return
+
+    def stream_heatmap(self):
+        # todo
+        return
+
+    def stream_trials(self):
+        # todo
+        return
+
+    def get_trials(self) -> list:
+        subject = self.ascended_being
+        subject_entries = self._subject_data[subject]
         relevant_trials = filter_list_of_dicts(subject_entries, {'trial': self.selected_trials})
+        return relevant_trials
 
-        raw_list = []
-        for each_trial in relevant_trials:
-            edf_path = each_trial['path']
-            raw_edf = read_raw_edf(edf_path, preload=True, verbose='CRITICAL')
-            raw_list.append(raw_edf)
-
-        catted_raws = mne.concatenate_raws(raw_list)
-        events_timings, event_indices = mne.events_from_annotations(catted_raws)
-        event_list = list(event_indices.keys())
-
-        timing_list = []
-        for each_timing in events_timings:
-            timing_entry = {
-                'idx': each_timing[0],
-                'time': idx_to_time(each_timing[0], self.sample_freq),
-                'event': event_list[int(each_timing[2]) - 1]
-            }
-            timing_list.append(timing_entry)
-        return timing_list
+    def event_name_from_idx(self, event_idx) -> str:
+        return self.event_names[event_idx - 1]
 
     def _load_file(self, fname):
         f_basename, _ = os.path.splitext(os.path.basename(fname))
         entry_subject = f_basename[:4]
         entry_trial = f_basename[4:]
-        sample_entry = {'path': fname, 'trial': entry_trial, 'is_valid': True}
+        sample_entry = {'path': fname, 'trial': entry_trial, 'samples': None}
 
         subject_data_list = self._subject_data.get(entry_subject, None)
         if isinstance(subject_data_list, list):
@@ -308,10 +310,6 @@ class PhysioDataSource(DataSource):
         self._edf_file_list = find_files_by_type(file_type='edf', root_dir=self.dataset_directory)
         return
 
-    def read(self, size=-1):
-        print('test')
-        return 0
-
 
 def main():
     """
@@ -320,13 +318,12 @@ def main():
     """
     physio_ds = PhysioDataSource()
 
-    read_data = physio_ds.read(1)
-    print(read_data)
-    for each_datapoint in physio_ds:
-        curr_sample = each_datapoint['sample']
-        curr_event = each_datapoint['event']
+    for sample, trial_name in physio_ds:
+        sample_data = sample['data']
+        sample_event = sample['event']
+        event_name = physio_ds.event_name_from_idx(sample_event[2])
 
-        print(f'{curr_sample["time"]}: {curr_event["event"]}: {curr_sample["data"]}')
+        print(f'{trial_name}: {sample["time"]}: {event_name}: {sample_data}')
     return
 
 

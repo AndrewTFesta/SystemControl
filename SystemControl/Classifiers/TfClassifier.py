@@ -29,7 +29,7 @@ from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
+from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, int_to_subject_str
 from SystemControl.DataTransformer import Interpolation
 from SystemControl.utilities import find_files_by_type, filter_list_of_dicts, find_files_by_name
 
@@ -110,15 +110,18 @@ def plot_confusion_matrix(y_true, y_pred, class_labels, title, cmap='Blues', ann
     return
 
 
-def plot_history_metric(model_histroy, metric_name):
-    upper_y = np.max((model_histroy.history[metric_name], model_histroy.history['val_accuracy'])) * 1.2
-    plt.plot(model_histroy.epoch, model_histroy.history[metric_name], label=metric_name)
-    plt.plot(model_histroy.epoch, model_histroy.history[f'val_{metric_name}'], label=f'validation {metric_name}')
+def plot_history_metric(model_history, metric_name):
+    upper_y = np.max((model_history.history[metric_name], model_history.history[f'val_{metric_name}'])) * 1.2
+    plt.plot(model_history.epoch, model_history.history[metric_name], label=metric_name)
+    plt.plot(model_history.epoch, model_history.history[f'val_{metric_name}'], label=f'validation {metric_name}')
     plt.xlabel('Epoch')
     plt.ylabel(metric_name)
     plt.ylim([0, upper_y])
-    plt.xlim([model_histroy.epoch[0] - 0.5, model_histroy.epoch[-1] + 0.5])
+    plt.xlim([model_history.epoch[0] - 0.5, model_history.epoch[-1] + 0.5])
     plt.legend(loc='lower right')
+    plt.title = f'Model history: \'{metric_name}\''
+
+    # todo save model
     plt.show()
     plt.close()
     return
@@ -128,8 +131,7 @@ TrainParameters = collections.namedtuple(
     'TrainParameter',
     [
         'chosen_beings', 'interpolation_list', 'source_list', 'target_column',
-        'start_padding', 'duration',
-        'img_dims', 'learning_rate', 'batch_size', 'num_epochs'
+        'start_padding', 'end_padding', 'img_dims', 'learning_rate', 'batch_size', 'num_epochs'
     ]
 )
 
@@ -137,18 +139,19 @@ TrainParameters = collections.namedtuple(
 class TfClassifier:
 
     def __init__(self, base_data_directory, chosen_beings: list, interpolation_types: list, sources: list,
-                 start_padding: list, duration: list, target: str = 'event', mdl_name: str = None,
-                 preload: bool = '', verbosity: int = 1,
-                 learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
+                 start_padding: list, end_padding: list, target: str = 'event', mdl_id: str = None,
+                 verbosity: int = 1, learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
                  resize_height: int = 256, resize_width: int = 224, rand_seed: int = 42):
-        time_stamp = time.strftime('%d_%b_%Y_%H_%M_%S', time.gmtime())
-        self.model_name = f'tf_model_{time_stamp}'
-        if mdl_name:
-            self.model_name = mdl_name
+        time_stamp = time.strftime('%y_%m_%d_%H_%M_%S', time.gmtime())
+        self.model_name = f'tf_model'
+        if mdl_id:
+            self.model_name = f'_{mdl_id}'
+
+        self.model_dir = os.path.join(DATA_DIR, 'models', 'tf', f'{self.model_name}_{time_stamp}')
 
         self._train_params = TrainParameters(
             chosen_beings=chosen_beings, interpolation_list=interpolation_types, source_list=sources,
-            start_padding=start_padding, duration=duration,
+            start_padding=start_padding, end_padding=end_padding,
             target_column=target, img_dims=[resize_width, resize_height], learning_rate=learning_rate,
             batch_size=batch_size, num_epochs=num_epochs
         )
@@ -164,9 +167,6 @@ class TfClassifier:
 
         self._train_history = None
         self._eval_metrics = None
-        self._output_dir = os.path.join(DATA_DIR, 'output', 'tf', self.model_name)
-        if preload:
-            self.load_pretrained()
         return
 
     def __load_image_files(self):
@@ -178,12 +178,12 @@ class TfClassifier:
             event_type = file_parts[-2]
             file_subject = file_parts[-3]
             file_interp = file_parts[-4]
-            file_duration = file_parts[-5]
+            file_epad = file_parts[-5]
             file_spad = file_parts[-6]
             file_source = file_parts[-7]
             data_entry = {
                 'event': event_type, 'subject': file_subject, 'interpolation': file_interp, 'start_padding': file_spad,
-                'duration': file_duration, 'source': file_source, 'id': file_id, 'path': each_file
+                'end_padding': file_epad, 'source': file_source, 'id': file_id, 'path': each_file
             }
             data_list.append(data_entry)
         return data_list
@@ -192,7 +192,8 @@ class TfClassifier:
         filter_criteria = {
             'subject': self._train_params.chosen_beings,
             'interpolation': self._train_params.interpolation_list,
-            'source': self._train_params.source_list
+            'source': self._train_params.source_list,
+            'end_padding': self._train_params.end_padding
         }
         filtered_dataset = filter_list_of_dicts(self._raw_data, filter_criteria)
         rand_generator = random.Random(self._rand_seed)
@@ -232,7 +233,11 @@ class TfClassifier:
     def get_model_callbacks():
         fit_callbacks = [
             keras.callbacks.EarlyStopping(
-                monitor='val_accuracy', verbose=1, patience=3, mode='max', restore_best_weights=True
+                monitor='val_loss', verbose=1, patience=2, mode='auto', restore_best_weights=True
+            ),
+            keras.callbacks.ModelCheckpoint(
+                filepath='{epoch:02d}-{val_loss:.2f}.hdf5',
+                monitor='val_loss', verbose=1, mode='auto', save_best_only=True
             )
         ]
         return fit_callbacks
@@ -240,11 +245,11 @@ class TfClassifier:
     @staticmethod
     def default_model_metrics():
         metrics_list = [
-            keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
-            keras.metrics.CosineSimilarity(name='cos_similarity'),
-            keras.metrics.CategoricalHinge(name='categorical_hinge'),
-            keras.metrics.MeanAbsoluteError(name='mae'),
-            keras.metrics.MeanSquaredError(name='mse'),
+            keras.metrics.SparseCategoricalAccuracy(name='SparseCategoricalAccuracy'),
+            # keras.metrics.CosineSimilarity(name='cos_similarity'),
+            # keras.metrics.CategoricalHinge(name='categorical_hinge'),
+            # keras.metrics.MeanAbsoluteError(name='mae'),
+            # keras.metrics.MeanSquaredError(name='mse'),
         ]
         return metrics_list
 
@@ -400,7 +405,9 @@ class TfClassifier:
             y_pred=top_test_preds, y_true=self._data_splits['test']['labels'], class_labels=self.class_names,
             title=self._train_params.target_column, annotate_entries=False
         )
-        plot_history_metric(self._train_history, 'accuracy')
+
+        # todo iterate through all metrics
+        plot_history_metric(self._train_history, 'SparseCategoricalAccuracy')
         plot_history_metric(self._train_history, 'loss')
         print('==========================================================================')
         return
@@ -498,18 +505,21 @@ def main():
 
     heatmap_dir = os.path.join(DATA_DIR, 'heatmaps')
     target_column = 'event'
-    num_subjects = 10
+    num_subjects = 20
     num_epochs = 10
     b_size = 1
     lr = 1e-4
+
     #############################################
+    physio_ds = PhysioDataSource()
     rand_seed = 42
     rand_generator = random.Random(rand_seed)
-    chosen_beings = sorted(rand_generator.sample(PhysioDataSource.SUBJECT_NAMES, k=num_subjects))
+    potential_candidates = physio_ds.subject_names
+    chosen_beings = sorted(rand_generator.sample(potential_candidates, k=num_subjects))
 
     padding_list = ['spad_10']
-    duration_list = ['duration_10']
-    source_list = [PhysioDataSource.NAME]
+    duration_list = ['epad_10']
+    source_list = [physio_ds.name]
     interpolation_list = [
         Interpolation.LINEAR.name,
         Interpolation.QUADRATIC.name,
@@ -519,7 +529,7 @@ def main():
     tf_classifier = TfClassifier(
         heatmap_dir,
         chosen_beings=chosen_beings, interpolation_types=interpolation_list, sources=source_list,
-        start_padding=padding_list, duration=duration_list,
+        start_padding=padding_list, end_padding=duration_list,
         target=target_column, preload=load_model, verbosity=verbosity,
         num_epochs=num_epochs, batch_size=b_size, learning_rate=lr
     )

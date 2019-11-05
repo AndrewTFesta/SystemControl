@@ -12,6 +12,8 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+import cv2
+import numpy as np
 import requests
 from IPython import get_ipython
 from requests import HTTPError

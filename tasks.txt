@@ -1,23 +1,27 @@
-todo fix visualizer
+todo create init functions in visualizer
+todo timing analysis for generating dataset
+todo add command line args to classifier
+todo metric subplots all on one figure
+todo look into tf image functions, fit_generator
+todo eval metrics - cos_similarity, categorical_hinge, mae, mse
+todo tune stopping criteria
+todo model save name based on train params (hash)
+todo model metadata for saving/loading
+
+todo build dataset of csp features
+todo build svm classifier (scikit learn)
+todo build log reg classifier (scikit learn)
+
 todo add running classifier to visualizer
 todo guinetworking with obci gui
 todo log recorded data based on subject name
 todo parse recorded events and data
 todo load recorded data
-todo build dataset of csp features
-
-todo add command line args to classifier
-todo metric subplots all on one figure
-todo look into tf image functions, fit_generator, and pyvips
-todo eval metrics - cos_similarity, categorical_hinge, mae, mse
-todo tune stopping criteria
-
-todo build svm classifier (scikit learn)
-todo build log reg classifier (scikit learn)
 
 todo move 'main's into notebooks
 todo move scripts into notebooks
 todo docs
+todo cleanup requirements.txt and environment
 
 todo create system architecture diagram
 todo structure thesis sections

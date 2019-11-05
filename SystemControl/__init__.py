@@ -15,18 +15,13 @@ HUB_EXE = os.path.join(OBCI_PYTHON_DIR, 'OpenBCI_GUI', 'data', 'OpenBCIHub', OPE
 LOG_DIR = os.path.join(PROJECT_PATH, 'logs')
 DATA_DIR = os.path.join(PROJECT_PATH, 'data')
 
-RECORDED_DATA_DIR = os.path.join(DATA_DIR, 'recordedEvents')
-
-DATABASE_URL = os.path.join(DATA_DIR, 'eeg_db_sqllite.db')
-
 TERMINAL_COLUMNS, TERMINAL_ROWS = shutil.get_terminal_size()
 
 
 def __init_dirs() -> None:
     dir_list = [
         LOG_DIR,
-        DATA_DIR,
-        RECORDED_DATA_DIR,
+        DATA_DIR
     ]
     for each_dir in dir_list:
         each_dir_path = Path(each_dir)

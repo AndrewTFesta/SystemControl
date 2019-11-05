@@ -3,15 +3,12 @@
 @description
 """
 from abc import ABC, abstractmethod
-from io import IOBase
-
-import mne
 
 
-class DataSource(ABC, IOBase):
+class DataSource(ABC):
 
-    def __init__(self, mne_log_level: str = 'WARNING'):
-        mne.set_log_level(mne_log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
+    def __init__(self, log_level: str = 'WARNING'):
+        self._log_level = log_level
         return
 
     @abstractmethod
@@ -49,11 +46,23 @@ class DataSource(ABC, IOBase):
         pass
 
     @abstractmethod
-    def get_data(self) -> list:
+    def stream_interpolation(self):
         pass
 
     @abstractmethod
-    def get_events(self) -> list:
+    def stream_heatmap(self):
+        pass
+
+    @abstractmethod
+    def stream_trials(self):
+        pass
+
+    @abstractmethod
+    def get_trials(self) -> list:
+        pass
+
+    @abstractmethod
+    def event_name_from_idx(self, event_idx) -> str:
         pass
 
     @abstractmethod
@@ -66,6 +75,10 @@ class DataSource(ABC, IOBase):
 
     @abstractmethod
     def save_data(self):
+        pass
+
+    @abstractmethod
+    def set_subject(self, subject: str):
         pass
 
 
