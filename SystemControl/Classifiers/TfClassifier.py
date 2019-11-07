@@ -487,15 +487,15 @@ def main(margs):
     learning_rate = margs.get('learning_rate', 1e-4)
     verbosity = margs.get('verbosity', 1)
     model_id = margs.get('model_id', '0')
+    duration_list = ['epad_50']  # todo make argument
 
     #############################################
     rand_seed = 42
     padding_list = ['spad_10']
-    duration_list = ['epad_10']
     interpolation_list = [
         Interpolation.LINEAR.name,
         Interpolation.QUADRATIC.name,
-        Interpolation.CUBIC.name
+        # Interpolation.CUBIC.name
     ]
     #############################################
     if not os.path.isdir(heatmap_dir):
@@ -540,7 +540,7 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='learning rate to use to train the model')
     parser.add_argument('--verbosity', type=int, default=1,
-                        help='verbosity level to use when reporting model updates: 0 -> on, 1-> off')
+                        help='verbosity level to use when reporting model updates: 0 -> off, 1-> on')
     parser.add_argument('--model_id', type=str, default='0',
                         help='string to use to label the model for future reference')
 

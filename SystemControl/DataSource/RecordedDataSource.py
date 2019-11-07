@@ -70,8 +70,12 @@ class RecordedDataSource(DataSource):
         trial_events = trial_info['events']
 
         sample_list = [
-            SampleEntry(idx=sample_idx, time=idx_to_time(sample_idx, self.sample_freq), data=each_sample)
+            SampleEntry(
+                idx=sample_idx, time=idx_to_time(sample_idx, self.sample_freq),
+                data=each_sample['data']
+            )
             for sample_idx, each_sample in enumerate(trial_samples)
+            if each_sample['type'] == 'timeseries_filtered'
         ]
 
         event_list = [
@@ -103,7 +107,8 @@ class RecordedDataSource(DataSource):
 
 
 def main():
-    rec_ds = RecordedDataSource()
+    subject = 'Tara'
+    rec_ds = RecordedDataSource(subject=subject)
     print(rec_ds.subject_names)
 
     for sample, event in rec_ds:

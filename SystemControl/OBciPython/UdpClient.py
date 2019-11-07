@@ -11,6 +11,7 @@ from time import sleep
 
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.LiveDataSource import LiveDataSource
+from SystemControl.utilities import uv_to_volts
 
 
 class UdpClient:
@@ -19,9 +20,9 @@ class UdpClient:
 
     def __init__(self, data_source: DataSource):
         self.ports = {
-            12345: 'timeseries',
-            # 12346: 'fft',
-            # 12347: 'accel',
+            12345: 'timeseries_raw',
+            12346: 'timeseries_filtered',
+            12347: 'fft',
         }
         self._clients = {}
         self.data_source = data_source
@@ -66,7 +67,14 @@ class UdpClient:
             data_str = data.decode('utf-8')
             try:
                 j_data = json.loads(data_str.strip())
-                self.data_source.add_sample(self.ports[client_port], time.time(), j_data)
+                data_type = j_data.get('type', None)
+                if data_type == 'eeg':
+                    data_samples = j_data.get('data', None)
+                    if data_samples:
+                        self.data_source.add_sample(
+                            self.ports[client_port], time.time(),
+                            [uv_to_volts(sample) for sample in data_samples[1:]]
+                        )
             except JSONDecodeError as jde:
                 print(f'Error while sanitizing sample: {jde}\n{data_str}')
         print(f'Closing listener: {self.ports[client_port]}')
@@ -89,7 +97,7 @@ class UdpClient:
 
 
 def main():
-    record_length = 15
+    record_length = 5
     current_subject = 'Tara'
     trial_type = 'motor_imagery'
     data_source = LiveDataSource(subject=current_subject, trial_type=trial_type)

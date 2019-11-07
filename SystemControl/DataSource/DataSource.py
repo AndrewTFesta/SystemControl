@@ -207,10 +207,16 @@ class DataSource:
             event_list = subject_entry.events
 
             next_event_idx = 1
+            if event_list:
+                curr_event = event_list[0]
+            else:
+                curr_event = EventEntry(idx=0, time=0, event_type='None')
+
             for sample in sample_list:
                 if next_event_idx < len(event_list) and sample.time >= event_list[next_event_idx].time:
                     next_event_idx += 1
-                yield sample, event_list[next_event_idx - 1]
+                    curr_event = event_list[next_event_idx - 1]
+                yield sample, curr_event
         return
 
     def __str__(self):

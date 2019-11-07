@@ -140,6 +140,11 @@ def time_to_idx(time_val, freq) -> int:
     return idx
 
 
+def uv_to_volts(uv_val):
+    volt_val = uv_val / 1E6
+    return volt_val
+
+
 def in_ipynb() -> bool:
     """
     Checks if the environment of the current runtime is an IPython environment.

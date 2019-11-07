@@ -64,12 +64,12 @@ class LiveDataSource(DataSource):
 
     def add_sample(self, sample_type, timestamp, sample_data):
         with self._samples_lock:
-            self.samples.append({'time': timestamp - self.init_time, 'type': sample_type, 'data': sample_data})
+            self.samples.append({'time': timestamp, 'type': sample_type, 'data': sample_data})
         return
 
     def add_event(self, event_type, timestamp, event_data):
         with self._event_lock:
-            self.events.append({'time': timestamp - self.init_time, 'type': event_type, 'data': event_data})
+            self.events.append({'time': timestamp, 'type': event_type, 'data': event_data})
         return
 
     def save_data(self, indent: bool = False):

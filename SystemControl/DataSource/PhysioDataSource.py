@@ -101,7 +101,10 @@ class PhysioDataSource(DataSource):
         data = cleaned_edf.get_data()
         np_data = np.transpose(data)
         sample_list = [
-            SampleEntry(idx=sample_idx, time=idx_to_time(sample_idx, self.sample_freq), data=each_sample)
+            SampleEntry(
+                idx=sample_idx, time=idx_to_time(sample_idx, self.sample_freq),
+                data=each_sample
+            )
             for sample_idx, each_sample in enumerate(np_data)
         ]
 
