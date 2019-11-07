@@ -72,7 +72,6 @@ class CliRecorder:
 
     def start_recorder(self):
         """
-
         The _getch and_getwch functions read a single character from the console without echoing the character.
         None of these functions can be used to read CTRL+C.
 

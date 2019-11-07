@@ -73,7 +73,6 @@ class MatplotlibVisualizer:
     def __setup_signal_axes(self):
         self._sig_axes = self._fig.add_subplot(
             1, 1, 1, autoscale_on=False, frameon=False,
-            # todo fix y scaling based on number of signals
             xlim=(0, self._num_samples), ylim=((self.signal_sep_val * -1) * 1.5, self.signal_sep_val * 1.5)
         )
         self._signal_data = {}
@@ -89,7 +88,7 @@ class MatplotlibVisualizer:
 
         sample_idx = sample[0]['idx']
         sample_time = sample[0]['time']
-        sample_event = sample[0]['event']  # todo add to event axes
+        sample_event = sample[0]['event']
         sample_data = sample[0]['data']
         trial_name = sample[1]
 

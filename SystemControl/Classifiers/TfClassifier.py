@@ -2,17 +2,19 @@
 @title
 @description
 """
+import argparse
+import collections
 import json
 import os
 import random
 import time
-import collections
 
 import cv2 as cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
+from matplotlib import style
+from matplotlib.ticker import MaxNLocator
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 
@@ -29,108 +31,13 @@ from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.DataSource.PhysioDataSource import PhysioDataSource, int_to_subject_str
 from SystemControl.DataTransformer import Interpolation
-from SystemControl.utilities import find_files_by_type, filter_list_of_dicts, find_files_by_name
-
-
-def show_sample(img_sample, target_label):
-    plt.figure()
-    plt.imshow(img_sample)
-    plt.tick_params(
-        axis='both', which='both',
-        bottom=False, top=False, labelbottom=False,
-        right=False, left=False, labelleft=False
-    )
-    plt.xlabel(target_label)
-    plt.grid(False)
-    plt.show()
-    plt.close()
-    return
-
-
-def show_top_samples(sample_imgs, sample_labels, title: str, num_rows: int = 5, num_cols: int = 5):
-    fig, ax_list = plt.subplots(num_rows, num_cols, figsize=(num_cols, num_rows))
-    fig.suptitle(f'{title} images: top {num_rows * num_cols}')
-    for each_ax_idx, each_ax in enumerate(ax_list.flat):
-        each_ax.set_xticks([])
-        each_ax.set_yticks([])
-        each_ax.imshow(sample_imgs[each_ax_idx])
-        each_ax.set_xlabel(sample_labels[each_ax_idx])
-    plt.show()
-    plt.close()
-    return
-
-
-def plot_confusion_matrix(y_true, y_pred, class_labels, title, cmap='Blues', annotate_entries=True):
-    title = f'Target: \'{title}\''
-    conf_mat = confusion_matrix(y_true, y_pred)
-    conf_mat = conf_mat.astype('float') / conf_mat.sum(axis=1)[:, np.newaxis]
-
-    lower_bound = np.min(y_true) - 0.5
-    upper_bound = np.max(y_true) + 0.5
-
-    fig, ax = plt.subplots()
-    im = ax.imshow(conf_mat, interpolation='nearest', cmap=cmap)
-    ax.figure.colorbar(im, ax=ax)
-
-    xtick_marks = np.arange(conf_mat.shape[1])
-    ytick_marks = np.arange(conf_mat.shape[0])
-
-    ax.set_xticks(xtick_marks)
-    ax.set_yticks(ytick_marks)
-
-    ax.set_xbound(lower=lower_bound, upper=upper_bound)
-    ax.set_ybound(lower=lower_bound, upper=upper_bound)
-    ax.invert_yaxis()
-
-    ax.set_xticklabels(class_labels)
-    ax.set_yticklabels(class_labels)
-
-    ax.set_xlabel('Predicted label')
-    ax.set_ylabel('True label')
-
-    ax.set_title(title)
-    plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
-
-    if annotate_entries:
-        annot_format = '0.2f'
-        thresh = conf_mat.max() / 2.
-        for i in range(conf_mat.shape[0]):
-            for j in range(conf_mat.shape[1]):
-                conf_entry = conf_mat[i, j]
-                ax.text(
-                    j, i, format(conf_entry, annot_format), ha='center', va='center',
-                    color='white' if conf_entry > thresh else 'black'
-                )
-    fig.tight_layout()
-
-    plt.show()
-    plt.close()
-    return
-
-
-def plot_history_metric(model_history, metric_name):
-    upper_y = np.max((model_history.history[metric_name], model_history.history[f'val_{metric_name}'])) * 1.2
-    plt.plot(model_history.epoch, model_history.history[metric_name], label=metric_name)
-    plt.plot(model_history.epoch, model_history.history[f'val_{metric_name}'], label=f'validation {metric_name}')
-    plt.xlabel('Epoch')
-    plt.ylabel(metric_name)
-    plt.ylim([0, upper_y])
-    plt.xlim([model_history.epoch[0] - 0.5, model_history.epoch[-1] + 0.5])
-    plt.legend(loc='lower right')
-    plt.title = f'Model history: \'{metric_name}\''
-
-    # todo save model
-    plt.show()
-    plt.close()
-    return
-
+from SystemControl.utilities import find_files_by_type, filter_list_of_dicts
 
 TrainParameters = collections.namedtuple(
     'TrainParameter',
     [
-        'chosen_beings', 'interpolation_list', 'source_list', 'target_column',
+        'source_list', 'chosen_beings', 'target_column', 'interpolation_list',
         'start_padding', 'end_padding', 'img_dims', 'learning_rate', 'batch_size', 'num_epochs'
     ]
 )
@@ -138,30 +45,39 @@ TrainParameters = collections.namedtuple(
 
 class TfClassifier:
 
-    def __init__(self, base_data_directory, chosen_beings: list, interpolation_types: list, sources: list,
-                 start_padding: list, end_padding: list, target: str = 'event', mdl_id: str = None,
-                 verbosity: int = 1, learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
-                 resize_height: int = 256, resize_width: int = 224, rand_seed: int = 42):
+    def __init__(self, dataset_directory, num_subjects: int, target: str,
+                 interpolation_types: list, start_padding: list, end_padding: list, model_id: str,
+                 *, verbosity: int = 1, learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
+                 resize_height: int = 224, resize_width: int = 224, rand_seed: int = 42):
         time_stamp = time.strftime('%y_%m_%d_%H_%M_%S', time.gmtime())
-        self.model_name = f'tf_model'
-        if mdl_id:
-            self.model_name = f'_{mdl_id}'
+        self.model_name = f'model_{model_id}'
+        self.model_dir = os.path.join(DATA_DIR, 'models', 'tf', f'{self.type_name}', f'{self.model_name}_{time_stamp}')
+        if not os.path.isdir(self.model_dir):
+            os.makedirs(self.model_dir)
 
-        self.model_dir = os.path.join(DATA_DIR, 'models', 'tf', f'{self.model_name}_{time_stamp}')
-
-        self._train_params = TrainParameters(
-            chosen_beings=chosen_beings, interpolation_list=interpolation_types, source_list=sources,
-            start_padding=start_padding, end_padding=end_padding,
-            target_column=target, img_dims=[resize_width, resize_height], learning_rate=learning_rate,
-            batch_size=batch_size, num_epochs=num_epochs
-        )
         self._rand_seed = rand_seed
         self._verbosity = verbosity
 
-        self._data_directory = base_data_directory
-        self._raw_data = self.__load_image_files()
-        self._filtered_dataframe, self.class_names = self.__filter_data_entries()
-        self._data_splits = self.__split_data()
+        self._data_directory = dataset_directory
+        raw_data = self.__load_image_files()
+
+        self.class_names: list = list(np.unique([each_entry[target] for each_entry in raw_data]))
+        source_list = list(np.unique([each_entry['source'] for each_entry in raw_data]))
+        potential_subjects = list(np.unique([each_entry['subject'] for each_entry in raw_data]))
+
+        rand_generator = random.Random(self._rand_seed)
+        chosen_beings = sorted(rand_generator.sample(potential_subjects, k=num_subjects))
+
+        self._train_params = TrainParameters(
+            source_list=source_list, chosen_beings=chosen_beings, target_column=target,
+            interpolation_list=interpolation_types, start_padding=start_padding, end_padding=end_padding,
+            img_dims=[resize_width, resize_height], learning_rate=learning_rate,
+            batch_size=batch_size, num_epochs=num_epochs
+        )
+        self.save_train_params()
+
+        filtered_dataframe = self.__filter_data_entries(raw_data)
+        self._data_splits = self.__split_data(filtered_dataframe)
 
         self.model = self.__build_cnn_v0()
 
@@ -169,10 +85,14 @@ class TfClassifier:
         self._eval_metrics = None
         return
 
+    @property
+    def type_name(self):
+        return 'cnn'
+
     def __load_image_files(self):
         img_files = find_files_by_type('png', self._data_directory)
         data_list = []
-        for each_file in img_files:
+        for each_file in tqdm(img_files, desc='Reading dataset directory hierarchy'):
             file_parts = each_file.split(os.path.sep)
             file_id, file_ext = os.path.splitext(file_parts[-1])
             event_type = file_parts[-2]
@@ -188,21 +108,20 @@ class TfClassifier:
             data_list.append(data_entry)
         return data_list
 
-    def __filter_data_entries(self):
+    def __filter_data_entries(self, data_to_filter):
         filter_criteria = {
             'subject': self._train_params.chosen_beings,
             'interpolation': self._train_params.interpolation_list,
             'source': self._train_params.source_list,
             'end_padding': self._train_params.end_padding
         }
-        filtered_dataset = filter_list_of_dicts(self._raw_data, filter_criteria)
+        filtered_dataset = filter_list_of_dicts(data_to_filter, filter_criteria)
         rand_generator = random.Random(self._rand_seed)
         rand_generator.shuffle(filtered_dataset)
         filtered_df = pd.DataFrame(filtered_dataset)
-        class_names = sorted(filtered_df[self._train_params.target_column].unique())
-        target_str_to_idx = {class_name: class_idx for class_idx, class_name in enumerate(class_names)}
+        target_str_to_idx = {class_name: class_idx for class_idx, class_name in enumerate(self.class_names)}
         filtered_df.replace(target_str_to_idx, inplace=True)
-        return filtered_df, class_names
+        return filtered_df
 
     def __build_cnn_v0(self):
         input_shape = (self._train_params.img_dims[1], self._train_params.img_dims[0], 3)
@@ -229,15 +148,18 @@ class TfClassifier:
         )
         return model
 
-    @staticmethod
-    def get_model_callbacks():
+    def default_model_callbacks(self):
         fit_callbacks = [
             keras.callbacks.EarlyStopping(
-                monitor='val_loss', verbose=1, patience=2, mode='auto', restore_best_weights=True
+                monitor='val_loss', verbose=self._verbosity, patience=3, mode='auto', restore_best_weights=True
             ),
             keras.callbacks.ModelCheckpoint(
-                filepath='{epoch:02d}-{val_loss:.2f}.hdf5',
-                monitor='val_loss', verbose=1, mode='auto', save_best_only=True
+                filepath=os.path.join(self.model_dir, 'epoch_{epoch:02d}-val_loss_{val_loss:.2f}.hdf5'),
+                monitor='val_loss', verbose=self._verbosity, mode='auto', save_weights_only=False, save_best_only=True
+            ),
+            keras.callbacks.CSVLogger(
+                filename=os.path.join(self.model_dir, 'epoch_metrics.csv'),
+                separator=',', append=True
             )
         ]
         return fit_callbacks
@@ -245,11 +167,8 @@ class TfClassifier:
     @staticmethod
     def default_model_metrics():
         metrics_list = [
-            keras.metrics.SparseCategoricalAccuracy(name='SparseCategoricalAccuracy'),
-            # keras.metrics.CosineSimilarity(name='cos_similarity'),
-            # keras.metrics.CategoricalHinge(name='categorical_hinge'),
-            # keras.metrics.MeanAbsoluteError(name='mae'),
-            # keras.metrics.MeanSquaredError(name='mse'),
+            keras.metrics.SparseCategoricalAccuracy(),
+            keras.metrics.CategoricalHinge(),
         ]
         return metrics_list
 
@@ -263,9 +182,9 @@ class TfClassifier:
         loss_func = keras.losses.SparseCategoricalCrossentropy()
         return loss_func
 
-    def __split_data(self, test_size=0.25, val_size=0.15):
+    def __split_data(self, data_to_split, test_size=0.25, val_size=0.15):
         train_val_df, test_filtered_df = train_test_split(
-            self._filtered_dataframe, test_size=test_size, random_state=self._rand_seed
+            data_to_split, test_size=test_size, random_state=self._rand_seed
         )
         train_filtered_df, val_filtered_df = train_test_split(
             train_val_df, test_size=val_size, random_state=self._rand_seed
@@ -301,7 +220,7 @@ class TfClassifier:
         self._train_history = self.model.fit(
             self._data_splits['train']['images'], self._data_splits['train']['labels'],
             epochs=self._train_params.num_epochs, verbose=self._verbosity, batch_size=self._train_params.batch_size,
-            callbacks=self.get_model_callbacks(),
+            callbacks=self.default_model_callbacks(),
             validation_data=(self._data_splits['validation']['images'], self._data_splits['validation']['labels'])
         )
         return self
@@ -321,13 +240,14 @@ class TfClassifier:
         val_img_shape = self._data_splits['validation']['images'].shape
         test_img_shape = self._data_splits['test']['images'].shape
 
-        train_images = self._data_splits['train']['images']
-        val_images = self._data_splits['validation']['images']
-        test_images = self._data_splits['test']['images']
+        num_train_images = len(self._data_splits['train']['images'])
+        num_val_images = len(self._data_splits['validation']['images'])
+        num_test_images = len(self._data_splits['test']['images'])
+        total_count = num_train_images + num_val_images + num_test_images
 
-        train_labels = self._data_splits['train']['labels']
-        val_labels = self._data_splits['validation']['labels']
-        test_labels = self._data_splits['test']['labels']
+        num_train_labels = len(self._data_splits['train']['labels'])
+        num_val_labels = len(self._data_splits['validation']['labels'])
+        num_test_labels = len(self._data_splits['test']['labels'])
 
         print('=====================================================================')
         print(f'Data source: {", ".join(self._train_params.source_list)}')
@@ -337,29 +257,29 @@ class TfClassifier:
         print(f'\t{", ".join(self._train_params.chosen_beings)}')
         print(f'Number of classes: {len(self.class_names)}')
         print(f'\t{", ".join(self.class_names)}')
-        print(f'Number of entries in filtered dataset: {len(self._filtered_dataframe)}')
+        print(f'Number of entries in dataset: {total_count}')
         print('=====================================================================')
-        print(f'Number train images: {len(train_images)} -> {len(train_labels)}')
+        print(f'Number train images: {num_train_images} -> {num_train_labels}')
         sep = '\t'
         for event_idx, event_count in train_event_counts.iteritems():
             print(f'{sep}{self.class_names[event_idx]}: {event_count} '
-                  f'({(event_count * 100) / len(train_labels):0.4f} %)', end='')
+                  f'({(event_count * 100) / num_train_labels:0.4f} %)', end='')
             sep = ', '
         print()
         print('=====================================================================')
-        print(f'Number validation images: {len(val_images)} -> {len(val_labels)}')
+        print(f'Number validation images: {num_val_images} -> {num_val_labels}')
         sep = '\t'
         for event_idx, event_count in val_event_counts.iteritems():
             print(f'{sep}{self.class_names[event_idx]}: {event_count} '
-                  f'({(event_count * 100) / len(val_labels):0.4f} %)', end='')
+                  f'({(event_count * 100) / num_val_labels:0.4f} %)', end='')
             sep = ', '
         print()
         print('=====================================================================')
-        print(f'Number test images: {len(test_images)} -> {len(test_labels)}')
+        print(f'Number test images: {num_test_images} -> {num_test_labels}')
         sep = '\t'
         for event_idx, event_count in test_event_counts.iteritems():
             print(f'{sep}{self.class_names[event_idx]}: {event_count} '
-                  f'({(event_count * 100) / len(test_labels):0.4f} %)', end='')
+                  f'({(event_count * 100) / num_test_labels:0.4f} %)', end='')
             sep = ', '
         print()
         print('=====================================================================')
@@ -378,9 +298,27 @@ class TfClassifier:
         val_labels = self._data_splits['validation']['labels']
         test_labels = self._data_splits['test']['labels']
 
-        show_top_samples(train_images, train_labels, title='Train', num_rows=5, num_cols=5)
-        show_top_samples(val_images, val_labels, title='Validation', num_rows=5, num_cols=5)
-        show_top_samples(test_images, test_labels, title='Test', num_rows=5, num_cols=5)
+        self.__show_samples(train_images, train_labels, title='Train', num_rows=5, num_cols=5, save_plot=True)
+        self.__show_samples(val_images, val_labels, title='Validation', num_rows=5, num_cols=5, save_plot=True)
+        self.__show_samples(test_images, test_labels, title='Test', num_rows=5, num_cols=5, save_plot=True)
+        return
+
+    def __show_samples(self, sample_imgs, sample_labels, title: str,
+                       num_rows: int = 5, num_cols: int = 5, save_plot: bool = False):
+        style.use('ggplot')
+        fig, ax_list = plt.subplots(num_rows, num_cols, figsize=(num_cols, num_rows))
+        fig.suptitle(f'{title} images: top {num_rows * num_cols}')
+        for each_ax_idx, each_ax in enumerate(ax_list.flat):
+            each_ax.set_xticks([])
+            each_ax.set_yticks([])
+            each_ax.imshow(sample_imgs[each_ax_idx])
+            each_ax.set_xlabel(sample_labels[each_ax_idx])
+
+        if save_plot:
+            plt.savefig(os.path.join(self.model_dir, f'samples_{title}_rows_{num_rows}_cols_{num_cols}.png'))
+        else:
+            plt.show()
+        plt.close()
         return
 
     def display_metrics(self):
@@ -401,15 +339,102 @@ class TfClassifier:
             self._data_splits['test']['images'], batch_size=self._train_params.batch_size
         )
         top_test_preds = [np.argmax(each_pred) for each_pred in test_predictions]
-        plot_confusion_matrix(
+        annotate_conf = len(self.class_names) < 20
+        self.__plot_confusion_matrix(
             y_pred=top_test_preds, y_true=self._data_splits['test']['labels'], class_labels=self.class_names,
-            title=self._train_params.target_column, annotate_entries=False
+            title=self._train_params.target_column, annotate_entries=annotate_conf, save_plot=True
         )
 
-        # todo iterate through all metrics
-        plot_history_metric(self._train_history, 'SparseCategoricalAccuracy')
-        plot_history_metric(self._train_history, 'loss')
+        for metric_name in self._train_history.params['metrics']:
+            if not metric_name.startswith('val_'):
+                self.__plot_history_metric(self._train_history, metric_name, save_plot=True)
         print('==========================================================================')
+        return
+
+    def __plot_confusion_matrix(self, y_true, y_pred, class_labels, title,
+                                cmap: str = 'Blues', annotate_entries: bool = True, save_plot: bool = False):
+        style.use('ggplot')
+        fig_title = f'Target: \'{title}\''
+        conf_mat = confusion_matrix(y_true, y_pred)
+        conf_mat = conf_mat.astype('float') / conf_mat.sum(axis=1)[:, np.newaxis]
+
+        lower_bound = np.min(y_true) - 0.5
+        upper_bound = np.max(y_true) + 0.5
+
+        fig, ax = plt.subplots()
+        im = ax.imshow(conf_mat, interpolation='nearest', cmap=cmap)
+        ax.figure.colorbar(im, ax=ax)
+
+        xtick_marks = np.arange(conf_mat.shape[1])
+        ytick_marks = np.arange(conf_mat.shape[0])
+
+        ax.set_xticks(xtick_marks)
+        ax.set_yticks(ytick_marks)
+
+        ax.set_xbound(lower=lower_bound, upper=upper_bound)
+        ax.set_ybound(lower=lower_bound, upper=upper_bound)
+        ax.invert_yaxis()
+
+        ax.set_xticklabels(class_labels)
+        ax.set_yticklabels(class_labels)
+
+        ax.set_xlabel('Predicted label')
+        ax.set_ylabel('True label')
+
+        ax.set_title(fig_title)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
+
+        if annotate_entries:
+            annot_format = '0.2f'
+            thresh = conf_mat.max() / 2.
+            for i in range(conf_mat.shape[0]):
+                for j in range(conf_mat.shape[1]):
+                    conf_entry = conf_mat[i, j]
+                    ax.text(
+                        j, i, format(conf_entry, annot_format), ha='center', va='center',
+                        color='white' if conf_entry > thresh else 'black'
+                    )
+        fig.tight_layout()
+
+        if save_plot:
+            plt.savefig(os.path.join(self.model_dir, f'confusion_matrix_{title}.png'))
+        else:
+            plt.show()
+        plt.close()
+        return
+
+    def __plot_history_metric(self, model_history, metric_name, save_plot: bool = False):
+        style.use('ggplot')
+        fig, ax = plt.subplots()
+
+        ax.plot(model_history.epoch, model_history.history[metric_name],
+                color='red', label=metric_name)
+        ax.plot(model_history.epoch, model_history.history[f'val_{metric_name}'],
+                color='black', label=f'validation {metric_name}')
+
+        upper_y = np.max((model_history.history[metric_name], model_history.history[f'val_{metric_name}'])) * 1.2
+        ax.set_ylim([0, upper_y])
+
+        ax.set_xlim([model_history.epoch[0] - 0.5, model_history.epoch[-1] + 0.5])
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel(metric_name)
+
+        ax.legend(loc='best')
+        ax.set_title(f'Model history: \'{metric_name}\'')
+
+        ax.set_axisbelow(True)
+        ax.minorticks_on()
+        ax.grid(which='minor', linestyle=':', linewidth='0.5', color='cyan')
+        ax.grid(which='major', linestyle='-', linewidth='0.5', color='blue')
+        ax.tick_params(which='both', top=False, left=False, right=False, bottom=False)
+
+        if save_plot:
+            plt.savefig(os.path.join(self.model_dir, f'metric_plot_{metric_name}.png'))
+        else:
+            plt.show()
+        plt.close()
         return
 
     def display_model(self):
@@ -423,16 +448,17 @@ class TfClassifier:
             Make sure that the directory containing the dot executable is on your system's path
         """
         keras.utils.plot_model(
-            self.model, os.path.join(self._output_dir, f'model_architecture.png'), show_shapes=True
+            self.model, os.path.join(self.model_dir, f'model_architecture.png'), show_shapes=True
         )
         print('==========================================================================')
         return
 
+    def save_train_params(self):
+        with open(os.path.join(self.model_dir, f'metadata.json'), 'w+') as meta_file:
+            json.dump(self._train_params._asdict(), meta_file, indent=2)
+        return
+
     def save_model(self):
-        meta_dict = {
-            'train_params': self._train_params._asdict(),
-            'name': self.model_name,
-        }
         metric_dict = {}
         for metric_index, metric_name in enumerate(self.model.metrics_names):
             if isinstance(self._eval_metrics[metric_index], np.float32):
@@ -440,103 +466,53 @@ class TfClassifier:
             else:
                 metric_dict[metric_name] = self._eval_metrics[metric_index]
 
-        if not os.path.isdir(self._output_dir):
-            os.makedirs(self._output_dir)
-
-        with open(os.path.join(self._output_dir, f'metadata.json'), 'w+') as meta_file:
-            json.dump(meta_dict, meta_file)
-
-        with open(os.path.join(self._output_dir, f'metrics.json'), 'w+') as metric_file:
+        with open(os.path.join(self.model_dir, f'metrics.json'), 'w+') as metric_file:
             json.dump(metric_dict, metric_file)
-        self.model.save(os.path.join(self._output_dir, f'model_checkpoint.h5'))
+        self.model.save(os.path.join(self.model_dir, f'model_checkpoint.h5'))
         return
 
-    def load_pretrained(self, base_dir=None):
-        if not base_dir:
-            base_dir = os.path.join(DATA_DIR, 'output', 'tf')
 
-        if not os.path.isdir(base_dir):
-            print(f'Directory does not exist: {base_dir}')
-            return False
-
-        poss_model_dir = sorted([
-            os.path.join(base_dir, each_dir)
-            for each_dir in os.listdir(base_dir)
-            if os.path.isdir(os.path.join(base_dir, each_dir))
-        ])
-        if len(poss_model_dir) == 0:
-            print(f'Unable to locate model files in directory: {base_dir}')
-            return False
-
-        model_dir = poss_model_dir[-1]
-        model_state_fname = find_files_by_type('h5', root_dir=model_dir)[-1]
-        meta_fname = find_files_by_name('metadata', root_dir=model_dir)[-1]
-        metrics_fname = find_files_by_name('metrics', root_dir=model_dir)[-1]
-
-        if meta_fname and model_state_fname:
-            self.model = keras.models.load_model(model_state_fname)
-
-            with open(meta_fname, 'r') as meta_file:
-                model_info = json.load(meta_file)
-                self.model_name = model_info['name']
-                self._output_dir = os.path.join(DATA_DIR, 'output', 'tf', self.model_name)
-                self._train_params = TrainParameters(**model_info['train_params'])
-
-            with open(metrics_fname, 'r') as metric_file:
-                model_info = json.load(metric_file)
-                self._eval_metrics = (model_info.values())
-                print(self._eval_metrics)
-        else:
-            print(f'Unable to locate model files in directory: {base_dir}')
-            return False
-        return True
-
-
-def main():
-    verbosity = 1
-    load_model = False
-    train_model = True
-
+def main(margs):
     display_dataset = True
     display_samples = False
     display_metrics = True
     display_model = False
     #############################################
 
-    heatmap_dir = os.path.join(DATA_DIR, 'heatmaps')
-    target_column = 'event'
-    num_subjects = 20
-    num_epochs = 10
-    b_size = 1
-    lr = 1e-4
+    heatmap_dir = margs.get('data_directory', os.path.join(DATA_DIR, 'heatmaps', 'Physio'))
+    target_column = margs.get('target', 'event')
+    num_subjects = margs.get('num_subjects', 20)
+    num_epochs = margs.get('num_epochs', 20)
+    batch_size = margs.get('batch_size', 16)
+    learning_rate = margs.get('learning_rate', 1e-4)
+    verbosity = margs.get('verbosity', 1)
+    model_id = margs.get('model_id', '0')
 
     #############################################
-    physio_ds = PhysioDataSource()
     rand_seed = 42
-    rand_generator = random.Random(rand_seed)
-    potential_candidates = physio_ds.subject_names
-    chosen_beings = sorted(rand_generator.sample(potential_candidates, k=num_subjects))
-
     padding_list = ['spad_10']
     duration_list = ['epad_10']
-    source_list = [physio_ds.name]
     interpolation_list = [
         Interpolation.LINEAR.name,
         Interpolation.QUADRATIC.name,
         Interpolation.CUBIC.name
     ]
     #############################################
+    if not os.path.isdir(heatmap_dir):
+        print(f'Dataset directory not found: {heatmap_dir}')
+        return
+    #############################################
     tf_classifier = TfClassifier(
         heatmap_dir,
-        chosen_beings=chosen_beings, interpolation_types=interpolation_list, sources=source_list,
-        start_padding=padding_list, end_padding=duration_list,
-        target=target_column, preload=load_model, verbosity=verbosity,
-        num_epochs=num_epochs, batch_size=b_size, learning_rate=lr
+        num_subjects=num_subjects, interpolation_types=interpolation_list,
+        start_padding=padding_list, end_padding=duration_list, model_id=model_id,
+        target=target_column, verbosity=verbosity, rand_seed=rand_seed,
+        num_epochs=num_epochs, batch_size=batch_size, learning_rate=learning_rate
     )
-    if train_model:
-        tf_classifier.train()
-        tf_classifier.evaluate()
-        tf_classifier.save_model()
+
+    tf_classifier.train()
+    tf_classifier.evaluate()
+    tf_classifier.save_model()
 
     if display_dataset:
         tf_classifier.display_dataset()
@@ -550,4 +526,23 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Train and evaluate a Tensorflow classifier.')
+    parser.add_argument('--data_directory', type=str, default=os.path.join(DATA_DIR, 'heatmaps', 'Physio'),
+                        help='base directory or directory structure containing the image dataset')
+    parser.add_argument('--target', type=str, default='event',
+                        help='target variable to be used as the class label')
+    parser.add_argument('--num_subjects', type=int, default=20,
+                        help='number of subjects to use from the underlying datasource')
+    parser.add_argument('--num_epochs', type=int, default=20,
+                        help='maximum number of epochs over which to train the model')
+    parser.add_argument('--batch_size', type=int, default=16,
+                        help='size of a training batch')
+    parser.add_argument('--learning_rate', type=float, default=1e-4,
+                        help='learning rate to use to train the model')
+    parser.add_argument('--verbosity', type=int, default=1,
+                        help='verbosity level to use when reporting model updates: 0 -> on, 1-> off')
+    parser.add_argument('--model_id', type=str, default='0',
+                        help='string to use to label the model for future reference')
+
+    args = parser.parse_args()
+    main(vars(args))

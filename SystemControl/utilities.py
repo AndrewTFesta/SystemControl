@@ -12,8 +12,6 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-import cv2
-import numpy as np
 import requests
 from IPython import get_ipython
 from requests import HTTPError
@@ -137,8 +135,8 @@ def idx_to_time(idx, freq) -> float:
     return time_val
 
 
-def time_to_idx(time_val, freq) -> float:
-    idx = time_val * freq
+def time_to_idx(time_val, freq) -> int:
+    idx = int(time_val * freq)
     return idx
 
 
