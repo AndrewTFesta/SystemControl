@@ -11,10 +11,12 @@ from SystemControl import DATA_DIR
 from SystemControl.DataSource.DataSource import DataSource, SampleEntry, EventEntry, SubjectEntry
 from SystemControl.utilities import find_files_by_type, idx_to_time
 
+
 class MotorAction(Enum):
     REST = 0
     RIGHT = 1
     LEFT = 2
+
 
 class LiveDataSource(DataSource):
 
@@ -42,13 +44,18 @@ class LiveDataSource(DataSource):
         }
         self.samples = [SampleEntry(idx=0, timestamp=0, data=initial_sample)]
         self.events = [EventEntry(idx=0, timestamp=0, event_type=MotorAction.REST.name)]
-        subject_entry_fname = os.path.join(self.dataset_directory, self.ascended_being, f'{self.current_trial}.json')
+        subject_entry_fname = os.path.join(
+            self.dataset_directory, self.ascended_being, f'{self.selected_trial_type}-{self.current_trial}.json'
+        )
         self.subject_entry = SubjectEntry(
-            path=subject_entry_fname, source_name=self.name, subject=self.ascended_being, trial=self.current_trial,
-            samples=self.samples, events=self.events
+            path=subject_entry_fname, source_name=self.name, subject=self.ascended_being,
+            trial_type=self.selected_trial_type, trial_name=self.current_trial, samples=self.samples, events=self.events
         )
         self.subject_entries.append(self.subject_entry)
         return
+
+    def trial_type_from_name(self, trial_name):
+        return self.selected_trial_type
 
     def __iter__(self):
         for sample in self.samples:
@@ -86,7 +93,7 @@ class LiveDataSource(DataSource):
         with self._event_lock:
             with self._samples_lock:
                 sample_idx = len(self.samples)
-            sample_time = idx_to_time(sample_idx, self.sample_freq)
+            sample_time = idx_to_time(sample_idx, self.sample_freq)  # TODO fix issue when only logging events
             event_entry = EventEntry(
                 idx=sample_idx, timestamp=sample_time, event_type=event_type
             )

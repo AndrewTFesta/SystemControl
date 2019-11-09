@@ -31,7 +31,6 @@ import numpy as np
 from mne.io import read_raw_edf
 from tqdm import tqdm
 
-from SystemControl import DATA_DIR
 from SystemControl.DataSource.DataSource import SubjectEntry, SampleEntry, EventEntry, DataSource
 from SystemControl.utilities import download_large_file, unzip_file, find_files_by_type, idx_to_time
 
@@ -53,7 +52,7 @@ class PhysioDataSource(DataSource):
         self.name = 'Physio'
         self.sample_freq = 160
         self.subject_names = [int_to_subject_str(each_subject) for each_subject in list(range(1, 110))]
-        self.trial_mappings = {
+        self.__trial_mappings = {
             'baseline_open': [int_to_run_str(each_run) for each_run in [1]],
             'baseline_closed': [int_to_run_str(each_run) for each_run in [2]],
             'motor_execution_right_left': [int_to_run_str(each_run) for each_run in [3, 7, 11]],
@@ -61,7 +60,7 @@ class PhysioDataSource(DataSource):
             'motor_imagery_right_left': [int_to_run_str(each_run) for each_run in [4, 8, 12]],
             'motor_imagery_hands_feet': [int_to_run_str(each_run) for each_run in [6, 10, 14]]
         }
-        self.trial_types = list(self.trial_mappings.keys())
+        self.trial_types = list(self.__trial_mappings.keys())
         self.selected_trial_type = self.trial_types[4]
         self.event_names = ['T0', 'T1', 'T2']
         self.ascended_being = subject if subject else self.subject_names[0]
@@ -74,6 +73,14 @@ class PhysioDataSource(DataSource):
         self.load_data()
         self.set_subject(self.ascended_being)
         return
+
+    def __trial_type_from_name(self, trial_name):
+        entry_trial_type = None
+        for trial_type, trial_names in self.__trial_mappings.items():
+            if trial_name in trial_names:
+                entry_trial_type = trial_type
+                break
+        return entry_trial_type
 
     def __clean_raw_edf(self, raw_edf):
         cleaned_raw_edf = raw_edf.copy()
@@ -145,7 +152,8 @@ class PhysioDataSource(DataSource):
 
             subject_entry = SubjectEntry(
                 path=each_file, source_name=self.name, subject=entry_subject,
-                trial=entry_trial, samples=sample_list, events=event_list
+                trial_type=self.__trial_type_from_name(entry_trial), trial_name=entry_trial,
+                samples=sample_list, events=event_list
             )
             subject_entry_list.append(subject_entry)
         return subject_entry_list
@@ -162,7 +170,7 @@ class PhysioDataSource(DataSource):
             subject_dir = os.path.join(self.dataset_directory, f'{subject}')
             found_json_files = find_files_by_type(file_type='json', root_dir=subject_dir)
             req_json_fnames = [
-                os.path.join(subject_dir, f'{trial_name}.json')
+                os.path.join(subject_dir, f'{self.__trial_type_from_name(trial_name)}-{trial_name}.json')
                 for trial_name in [int_to_run_str(each_run) for each_run in range(1, 15)]
             ]
             set_found_files = set(found_json_files)

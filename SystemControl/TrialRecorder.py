@@ -3,7 +3,6 @@
 @description
 """
 import os
-import signal
 import threading
 from queue import Queue, Empty
 
@@ -18,7 +17,7 @@ from SystemControl import IMAGES_DIR
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.LiveDataSource import LiveDataSource, MotorAction
 from SystemControl.OBciPython.UdpClient import UdpClient
-from SystemControl.StimulusGenerator import StimulusGenerator
+from SystemControl.StimulusGenerator import StimulusGenerator, GeneratorType
 
 matplotlib.use('TkAgg')
 style.use('ggplot')
@@ -84,6 +83,7 @@ class TrialRecorder:
 
         fig_manager = plt.get_current_fig_manager()
         fig_manager.window.wm_geometry(f'+{window_pos_x}+{window_pos_y}')
+        fig_manager.window.attributes('-topmost', 0)
         return
 
     def __init_plot(self):
@@ -117,8 +117,8 @@ class TrialRecorder:
         plt.close()
         return
 
-    def save_data(self):
-        self.data_source.save_data()
+    def save_data(self, human_readable: bool = False):
+        self.data_source.save_data(human_readable=human_readable)
         return
 
     def update_stimuli(self, update_arg):
@@ -137,23 +137,23 @@ class TrialRecorder:
 
 
 def main():
-    record_length = 3
-    current_subject = 'Random'
+    record_length = 720
+    current_subject = 'test'
     trial_type = 'motor_imagery'
-    generate_delay = 2
+    generate_delay = 5
     jitter_generator = 0.2
     rand_seed = 42
+    human_readable = True
 
     data_source = LiveDataSource(subject=current_subject, trial_type=trial_type)
-    stimulus_generator = StimulusGenerator(data_source, delay=generate_delay, jitter=jitter_generator, seed=rand_seed)
+    stimulus_generator = StimulusGenerator(
+        data_source, delay=generate_delay, jitter=jitter_generator, seed=rand_seed, generator_type=GeneratorType.RANDOM
+    )
     udp_client = UdpClient(data_source)
 
     trial_recorder = TrialRecorder(data_source, stimulus_generator, udp_client, record_length)
     trial_recorder.run()
-    print('exiting main')
-
-    # trial_recorder.stop()
-    trial_recorder.save_data()
+    trial_recorder.save_data(human_readable=human_readable)
     return
 
 

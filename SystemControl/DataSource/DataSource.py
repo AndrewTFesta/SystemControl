@@ -17,15 +17,16 @@ from SystemControl.utilities import find_files_by_type
 
 class SubjectEntry(dict):
 
-    def __init__(self, path: str, source_name: str, subject: str, trial: str,
+    def __init__(self, path: str, source_name: str, subject: str, trial_type: str, trial_name: str,
                  samples: list = None, events: list = None):
         super().__init__(
-            path=path, source_name=source_name, subject=subject, trial=trial, samples=samples, events=events
+            path=path, source_name=source_name, subject=subject, trial_type=trial_type, trial_name=trial_name,
+            samples=samples, events=events
         )
         return
 
     def __str__(self):
-        return f'{self["source_name"]}:{self["subject"]}:{self["trial"]}'
+        return f'{self["source_name"]}:{self["subject"]}:{self["trial_type"]}:{self["trial_name"]}'
 
     def __eq__(self, other):
         if not isinstance(other, SubjectEntry):
@@ -33,8 +34,9 @@ class SubjectEntry(dict):
 
         sources_equal = self["source_name"] == other["source_name"]
         subjects_equal = self["subject"] == other["subject"]
-        trials_equal = self["trial"] == other["trial"]
-        return sources_equal and subjects_equal and trials_equal
+        trial_types_equal = self["trial_type"] == other["trial_type"]
+        trial_names_equal = self["trial_name"] == other["trial_name"]
+        return sources_equal and subjects_equal and trial_types_equal and trial_names_equal
 
     def is_loaded(self):
         return self["samples"] and self["events"]
@@ -78,7 +80,6 @@ class DataSource:
         self.name = None
         self.sample_freq = None
         self.subject_names = None
-        self.trial_mappings = None
         self.trial_types = None
         self.event_names = None
         self.ascended_being = None
@@ -121,9 +122,11 @@ class DataSource:
         for each_fname in tqdm(json_file_list, desc=f'Storing json file names', file=sys.stdout):
             file_parts = each_fname.split(os.sep)
             entry_trial, _ = os.path.splitext(file_parts[-1])
+            trial_type, trial_name = entry_trial.split('-')
             entry_subject = file_parts[-2]
             subject_entry = SubjectEntry(
-                path=each_fname, source_name=self.name, subject=entry_subject, trial=entry_trial
+                path=each_fname, source_name=self.name, subject=entry_subject,
+                trial_type=trial_type, trial_name=trial_name
             )
             self.subject_entries.append(subject_entry)
         time_end = time.time()
@@ -157,19 +160,13 @@ class DataSource:
         return
 
     def get_subject_entries(self) -> list:
-        relevant_trials = self.get_trials_by_type(self.selected_trial_type)
-        filtered_subject_entries = filter(lambda entry: entry["subject"] == self.ascended_being, self.subject_entries)
-        filtered_trial_entries = filter(lambda entry: entry["trial"] in relevant_trials, list(filtered_subject_entries))
-        return list(filtered_trial_entries)
-
-    def get_trials_by_type(self, trial_type: str = None) -> list:
-        if not trial_type:
-            trial_type = self.ascended_being
-
-        if trial_type not in self.trial_types:
-            raise ValueError(f'Designated trial type is not a valid trial type: {trial_type}')
-
-        return self.trial_mappings[trial_type]
+        filtered_subject_entries = list(filter(
+            lambda entry: entry["subject"] == self.ascended_being, self.subject_entries
+        ))
+        filtered_trial_entries = list(filter(
+            lambda entry: entry["trial_type"] in self.selected_trial_type, list(filtered_subject_entries)
+        ))
+        return filtered_trial_entries
 
     def preload_user(self, subject: str = None):
         if not subject:
@@ -217,14 +214,18 @@ class DataSource:
         return
 
     def save_entry(self, subject_entry, human_readable=False):
-        entry_trial = subject_entry["trial"]
+        entry_trial_type = subject_entry["trial_type"]
+        entry_trial_name = subject_entry["trial_name"]
         subject_name = subject_entry["subject"]
 
         subject_save_dir = os.path.join(DATA_DIR, self.name, subject_name)
         if not os.path.isdir(subject_save_dir):
             os.makedirs(subject_save_dir)
 
-        subject_entry_fname = os.path.join(subject_save_dir, f'{entry_trial}.json')
+        subject_entry_fname = os.path.join(
+            subject_save_dir,
+            f'{entry_trial_type}-{entry_trial_name}.json'
+        )
         with open(subject_entry_fname, 'w+') as subject_entry_file:
             if human_readable:
                 json.dump(subject_entry, subject_entry_file, indent=2)

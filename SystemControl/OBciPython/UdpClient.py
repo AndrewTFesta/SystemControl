@@ -91,7 +91,7 @@ class UdpClient:
     def stop(self):
         self.listening = False
         # slight delay to give threads chance to close cleanly
-        sleep(2)
+        sleep(0.1)
         print('UdpClient stopping...')
         return
 

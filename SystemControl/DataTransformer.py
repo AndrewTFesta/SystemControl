@@ -5,24 +5,14 @@
 import hashlib
 import json
 import os
-import shutil
 import time
 from enum import Enum
 
 import cv2
 import matplotlib.pyplot as plt
-import mne
 import numpy as np
 import seaborn as sns
-from mne import Epochs, pick_types, events_from_annotations
-from mne.channels import read_layout
-from mne.datasets import eegbci
-from mne.decoding import CSP
-from mne.io import concatenate_raws, read_raw_edf
 from scipy.interpolate import interp1d
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.model_selection import ShuffleSplit, cross_val_score
-from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import minmax_scale
 from tqdm import tqdm
 
@@ -90,17 +80,17 @@ def slice2img(data_slice: np.ndarray, row_spacing: int, interpolation: Interpola
 
 
 def slice_data(trial_info, num_start_samples_padding, num_samples_after_event) -> dict:
-    data_samples = trial_info.samples
-    data_events = trial_info.events
+    data_samples = trial_info["samples"]
+    data_events = trial_info["events"]
 
     # event_boundaries = [each_event.idx for each_event in data_events]
-    event_names = [each_event.type for each_event in data_events]
+    event_names = [each_event["event_type"] for each_event in data_events]
     slice_dict = {event_name: [] for event_name in np.unique(event_names)}
 
     for each_event in data_events:
-        new_slice = extract_slice(data_samples, each_event.idx, num_start_samples_padding, num_samples_after_event)
+        new_slice = extract_slice(data_samples, each_event["idx"], num_start_samples_padding, num_samples_after_event)
         if new_slice:
-            slice_dict[each_event.type].append(new_slice)
+            slice_dict[each_event["event_type"]].append(new_slice)
     return slice_dict
 
 
@@ -142,7 +132,7 @@ def generate_heatmap_dataset(
     data_slice_dict = {}
     for each_trial in ds_trials:
         trial_slices = slice_data(each_trial, num_start_samples_padding, num_samples_after_event)
-        data_slice_dict[each_trial.trial] = trial_slices
+        data_slice_dict[each_trial["trial"]] = trial_slices
     e_time = time.time()
     if verbose:
         print(f'Time to slice data: {e_time - s_time:0.4f} seconds')
@@ -155,7 +145,7 @@ def generate_heatmap_dataset(
     for trial_name, event_dict in data_slice_dict.items():
         for event_name, event_slices in event_dict.items():
             for each_slice in event_slices:
-                slice_signals = np.array([each_entry.data for each_entry in each_slice])
+                slice_signals = np.array([list(each_entry["data"].values()) for each_entry in each_slice])
                 slice_img = slice2img(slice_signals, row_spacing=spacing, interpolation=interpolation)
                 img_slice_dict[event_name].append(slice_img)
     e_time = time.time()
@@ -210,8 +200,7 @@ def main():
     start_padding = int(0.1 * timing_resolution) / timing_resolution
     end_padding_range = [
         int(each_epad * timing_resolution) / timing_resolution
-        # for each_epad in [0.1, 0.2, 0.3, 0.4, 0.5]
-        for each_epad in [0.5]
+        for each_epad in [0.1, 0.2, 0.3, 0.4, 0.5]
     ]
     spacing = 100
     cmap = CMAP.rocket_r
@@ -224,6 +213,7 @@ def main():
     pbar = tqdm(total=total_count, desc='Generating heatmap dataset')
     timing_dict = {}
     for each_subject in data_source.subject_names[:2]:
+        pbar.set_description(f'Generating heatmap dataset: {each_subject}')
         data_source.set_subject(each_subject)
         timing_dict[each_subject] = {}
         for each_interpolation in Interpolation:
@@ -237,20 +227,17 @@ def main():
                 )
                 e_time = time.time()
                 d_time = e_time - s_time
-                save_dir = os.path.join
                 num_images = len(find_files_by_type('png', heatmap_dir))
                 timing_dict[each_subject][each_interpolation.name][each_end_padding] = {
                     'time': d_time, 'num_images': num_images
                 }
-                # print(f'Time to build dataset: {each_subject}:{each_interpolation.name}:{each_end_padding}:'
-                #       f'\n\tnumber of images: {num_images}, {d_time:0.4f} seconds')
                 pbar.update(1)
     pbar.close()
 
     save_dir = os.path.join(DATA_DIR, 'timings')
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
-    timing_fname = os.path.join(save_dir, f'generate_heatmap_dataset.json')
+    timing_fname = os.path.join(save_dir, f'generate_{data_source.name}_heatmap_dataset.json')
     with open(timing_fname, 'w+') as timing_file:
         json.dump(timing_dict, timing_file, indent=2)
     return

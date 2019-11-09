@@ -487,7 +487,7 @@ def main(margs):
     learning_rate = margs.get('learning_rate', 1e-4)
     verbosity = margs.get('verbosity', 1)
     model_id = margs.get('model_id', '0')
-    duration_list = ['epad_50']  # todo make argument
+    duration_list = ['epad_10', 'epad_20', 'epad_30', 'epad_40', 'epad_50']  # todo make argument
 
     #############################################
     rand_seed = 42
@@ -495,7 +495,7 @@ def main(margs):
     interpolation_list = [
         Interpolation.LINEAR.name,
         Interpolation.QUADRATIC.name,
-        # Interpolation.CUBIC.name
+        Interpolation.CUBIC.name
     ]
     #############################################
     if not os.path.isdir(heatmap_dir):
@@ -527,12 +527,14 @@ def main(margs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train and evaluate a Tensorflow classifier.')
-    parser.add_argument('--data_directory', type=str, default=os.path.join(DATA_DIR, 'heatmaps', 'Physio'),
+    parser.add_argument('--data_directory', type=str, default=os.path.join(DATA_DIR, 'heatmaps', 'recorded'),
                         help='base directory or directory structure containing the image dataset')
     parser.add_argument('--target', type=str, default='event',
                         help='target variable to be used as the class label')
-    parser.add_argument('--num_subjects', type=int, default=20,
+    parser.add_argument('--num_subjects', type=int, default=1,
                         help='number of subjects to use from the underlying datasource')
+    parser.add_argument('--subject_name', type=str, default='Random',
+                        help='Name of subject to use when training this classifier')
     parser.add_argument('--num_epochs', type=int, default=20,
                         help='maximum number of epochs over which to train the model')
     parser.add_argument('--batch_size', type=int, default=16,
