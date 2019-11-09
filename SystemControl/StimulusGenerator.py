@@ -5,17 +5,10 @@
 import random
 import threading
 import time
-from enum import Enum
 from time import sleep
 
 from SystemControl.DataSource import DataSource
-from SystemControl.DataSource.LiveDataSource import LiveDataSource
-
-
-class MotorAction(Enum):
-    REST = 0
-    RIGHT = 1
-    LEFT = 2
+from SystemControl.DataSource.LiveDataSource import LiveDataSource, MotorAction
 
 
 class StimulusGenerator:
@@ -30,6 +23,25 @@ class StimulusGenerator:
         self.event_dict = {'start_absolute': self.start_time}
         self.running = False
         self.gen_thread = None
+
+        self.callback_list = []
+        return
+
+    def __start_generator(self):
+        while self.running:
+            rand_delay = random.uniform(self.delay_timer[0], self.delay_timer[1])
+            t = threading.Timer(rand_delay, self.gen_random_action)
+            t.start()
+            t.join()
+        return
+
+    def gen_random_action(self):
+        rand_action = random.choice([each_action for each_action in MotorAction])
+        act_time = time.time()
+        d_time = act_time - self.start_time
+        for callback_function in self.callback_list:
+            callback_function(rand_action, act_time, 'random')
+        self.event_dict[f'{d_time:0.6f}'] = rand_action
         return
 
     def run(self):
@@ -38,27 +50,17 @@ class StimulusGenerator:
         self.gen_thread.start()
         return
 
-    def __start_generator(self, callback_func=None):
-        if not callback_func:
-            callback_func = self.__default_callback_function
-        while self.running:
-            rand_delay = random.uniform(self.delay_timer[0], self.delay_timer[1])
-            t = threading.Timer(rand_delay, self.__gen_random_action, args=(callback_func,))
-            t.start()
-            t.join()
+    def add_callback(self, callback_func):
+        self.callback_list.append(callback_func)
         return
 
-    def __gen_random_action(self, callback_function):
-        rand_action = random.choice([each_action for each_action in MotorAction])
-        act_time = time.time()
-        d_time = act_time - self.start_time
-        callback_function(rand_action, act_time, 'random')
-        self.event_dict[f'{d_time:0.6f}'] = rand_action
+    @staticmethod
+    def print_callback(callback_arg, timestamp, action_type):
+        print(f'time: {timestamp:0.4f}\t{action_type}\t{callback_arg.name}')
         return
 
-    def __default_callback_function(self, callback_arg, timestamp, *args):
-        self.data_source.add_event(event_type=callback_arg.name, timestamp=timestamp, event_data=args)
-        print(callback_arg.name)
+    def log_event_callback(self, callback_arg, timestamp, action_type):
+        self.data_source.add_event(event_type=callback_arg.name, timestamp=timestamp)
         return
 
     def stop(self):
@@ -79,10 +81,12 @@ def main():
 
     live_ds = LiveDataSource(subject=subject_name, trial_type=trial_type)
     stimulus_generator = StimulusGenerator(live_ds, delay=generate_delay, jitter=jitter_generator, seed=rand_seed)
+    stimulus_generator.add_callback(stimulus_generator.log_event_callback)
+    stimulus_generator.add_callback(stimulus_generator.print_callback)
     stimulus_generator.run()
     sleep(run_time)
     stimulus_generator.stop()
-    live_ds.save_data(indent=True)
+    live_ds.save_data(human_readable=True)
 
     for key, val in stimulus_generator.event_dict.items():
         print(f'{key}:{val}')

@@ -307,6 +307,6 @@ def unzip_file(zip_filename, save_directory, force_unzip=False, remove_zip=False
     with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
         zip_ref.extractall(unzip_dir)
     if remove_zip:
-        os.remove(zip_filename)  # remove zip file after extracting
-        print('Removed temporary zip file')
+        os.remove(zip_filename)
+        print('Removing zip file')
     return unzip_dir

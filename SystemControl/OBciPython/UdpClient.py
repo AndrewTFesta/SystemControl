@@ -73,7 +73,7 @@ class UdpClient:
                     if data_samples:
                         self.data_source.add_sample(
                             self.ports[client_port], time.time(),
-                            [uv_to_volts(sample) for sample in data_samples[1:]]
+                            [uv_to_volts(sample) for sample in data_samples[:-1]]
                         )
             except JSONDecodeError as jde:
                 print(f'Error while sanitizing sample: {jde}\n{data_str}')
@@ -106,7 +106,7 @@ def main():
     udp_client.run()
     sleep(record_length)
     udp_client.stop()
-    data_source.save_data()
+    data_source.save_data(use_mp=False, human_readable=True)
     return
 
 

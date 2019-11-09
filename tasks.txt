@@ -1,5 +1,7 @@
-todo create visual prompts for recording sessions
-todo add reporting of failed udp connections
+todo recording sessions obci
+todo modelpool for testing different number of subjects vs accuracy
+
+todo fix visualizer
 todo create init functions in visualizer
 todo add running classifier to visualizer
 
@@ -12,10 +14,9 @@ todo cleanup requirements.txt and environment
 todo create system architecture diagram
 todo structure thesis sections
 
-todo    directly parse edf format
-        directly parse openbci format
-        dataset built based on sliding window
-        if contains event_onset -> label as true
-        system parameters
-            window size
-            step size
+todo    dataset built based on sliding window
+            if contains event_onset -> label as true
+            system parameters
+                window size
+                step size
+        explore frequency domain

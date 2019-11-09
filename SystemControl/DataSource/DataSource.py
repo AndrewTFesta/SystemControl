@@ -2,176 +2,65 @@
 @title
 @description
 """
+import json
 import os
+import sys
+import time
+from concurrent.futures.process import ProcessPoolExecutor
+from multiprocessing import cpu_count
+
+from tqdm import tqdm
 
 from SystemControl import DATA_DIR
+from SystemControl.utilities import find_files_by_type
 
 
-class SubjectEntry:
-
-    @property
-    def path(self):
-        return self.__path
-
-    @path.setter
-    def path(self, value):
-        self.__path = value
-        return
-
-    @property
-    def source_name(self):
-        return self.__source_name
-
-    @source_name.setter
-    def source_name(self, value):
-        self.__source_name = value
-        return
-
-    @property
-    def subject(self):
-        return self.__subject
-
-    @subject.setter
-    def subject(self, value):
-        self.__subject = value
-        return
-
-    @property
-    def trial(self):
-        return self.__trial
-
-    @trial.setter
-    def trial(self, value):
-        self.__trial = value
-        return
-
-    @property
-    def samples(self):
-        return self.__samples
-
-    @samples.setter
-    def samples(self, value):
-        self.__samples = value
-        return
-
-    @property
-    def events(self):
-        return self.__events
-
-    @events.setter
-    def events(self, value):
-        self.__events = value
-        return
-
-    ALL_SUBJECT_ENTRIES = []
+class SubjectEntry(dict):
 
     def __init__(self, path: str, source_name: str, subject: str, trial: str,
                  samples: list = None, events: list = None):
-        self.__path = path
-        self.__source_name = source_name
-        self.__subject = subject
-        self.__trial = trial
-        self.__samples = samples
-        self.__events = events
-
-        self.ALL_SUBJECT_ENTRIES.append(self)
+        super().__init__(
+            path=path, source_name=source_name, subject=subject, trial=trial, samples=samples, events=events
+        )
         return
 
     def __str__(self):
-        return f'{self.source_name}:{self.subject}:{self.trial}'
+        return f'{self["source_name"]}:{self["subject"]}:{self["trial"]}'
 
     def __eq__(self, other):
         if not isinstance(other, SubjectEntry):
             return False
 
-        sources_equal = self.source_name == other.source_name
-        subjects_equal = self.subject == other.subject
-        trials_equal = self.trial == other.trial
+        sources_equal = self["source_name"] == other["source_name"]
+        subjects_equal = self["subject"] == other["subject"]
+        trials_equal = self["trial"] == other["trial"]
         return sources_equal and subjects_equal and trials_equal
 
     def is_loaded(self):
-        return self.__samples and self.__events
+        return self["samples"] and self["events"]
 
 
-class SampleEntry:
+class SampleEntry(dict):
 
-    @property
-    def idx(self):
-        return self.__idx
-
-    @idx.setter
-    def idx(self, value):
-        self.__idx = value
-        return
-
-    @property
-    def time(self):
-        return self.__time
-
-    @time.setter
-    def time(self, value):
-        self.__time = value
-        return
-
-    @property
-    def data(self):
-        return self.__data
-
-    @data.setter
-    def data(self, value):
-        self.__data = value
-        return
-
-    def __init__(self, idx: int, time: float, data: list):
-        self.__idx = idx
-        self.__time = time
-        self.__data = data
+    def __init__(self, idx: int, timestamp: float, data: dict):
+        super().__init__(idx=idx, timestamp=timestamp, data=data)
         return
 
     def __str__(self):
-        return f'{self.idx}:{self.time}:{self.data}'
+        return f'{self["idx"]}:{self["timestamp"]}:{self["data"]}'
 
     def __repr__(self):
         return self.__str__()
 
 
-class EventEntry:
+class EventEntry(dict):
 
-    @property
-    def idx(self):
-        return self.__idx
-
-    @idx.setter
-    def idx(self, value):
-        self.__idx = value
-        return
-
-    @property
-    def time(self):
-        return self.__time
-
-    @time.setter
-    def time(self, value):
-        self.__time = value
-        return
-
-    @property
-    def type(self):
-        return self.__type
-
-    @type.setter
-    def type(self, value):
-        self.__type = value
-        return
-
-    def __init__(self, idx: int, time: float, event_type: str):
-        self.__idx = idx
-        self.__time = time
-        self.__type = event_type
+    def __init__(self, idx: int, timestamp: float, event_type: str):
+        super().__init__(idx=idx, timestamp=timestamp, event_type=event_type)
         return
 
     def __str__(self):
-        return f'{self.idx}:{self.time}:{self.type}'
+        return f'{self["idx"]}:{self["timestamp"]}:{self["event_type"]}'
 
     def __repr__(self):
         return self.__str__()
@@ -188,32 +77,33 @@ class DataSource:
 
         self.name = None
         self.sample_freq = None
-        self.coi = None
         self.subject_names = None
         self.trial_mappings = None
         self.trial_types = None
         self.event_names = None
-        self.stream_open = None
         self.ascended_being = None
+        self.subject_entries = None
         self.selected_trial_type = None
 
-        self.__trial_mappings = None
+        self.stream_open = False
+        self.subject_entries = []
+        self.coi = ['C3', 'Cz', 'C4']
         return
 
     def __iter__(self):
         subject_entry_list = self.get_subject_entries()
         for subject_entry in subject_entry_list:
-            sample_list = subject_entry.samples
-            event_list = subject_entry.events
+            sample_list = subject_entry["samples"]
+            event_list = subject_entry["events"]
 
             next_event_idx = 1
             if event_list:
                 curr_event = event_list[0]
             else:
-                curr_event = EventEntry(idx=0, time=0, event_type='None')
+                curr_event = EventEntry(idx=0, timestamp=0, event_type='None')
 
             for sample in sample_list:
-                if next_event_idx < len(event_list) and sample.time >= event_list[next_event_idx].time:
+                if next_event_idx < len(event_list) and sample["timestamp"] >= event_list[next_event_idx]["timestamp"]:
                     next_event_idx += 1
                     curr_event = event_list[next_event_idx - 1]
                 yield sample, curr_event
@@ -225,10 +115,19 @@ class DataSource:
     def __repr__(self):
         return self.__str__()
 
-    def event_name_from_id(self, event_idx) -> str:
-        return self.event_names[event_idx]
-
-    def preload_user(self):
+    def load_data(self):
+        time_start = time.time()
+        json_file_list = find_files_by_type(file_type='json', root_dir=self.dataset_directory)
+        for each_fname in tqdm(json_file_list, desc=f'Storing json file names', file=sys.stdout):
+            file_parts = each_fname.split(os.sep)
+            entry_trial, _ = os.path.splitext(file_parts[-1])
+            entry_subject = file_parts[-2]
+            subject_entry = SubjectEntry(
+                path=each_fname, source_name=self.name, subject=entry_subject, trial=entry_trial
+            )
+            self.subject_entries.append(subject_entry)
+        time_end = time.time()
+        print(f'Time to store file names: {time_end - time_start:.4f} seconds')
         return
 
     def set_subject(self, subject: str):
@@ -252,17 +151,16 @@ class DataSource:
         self.stream_open = True
         while self.stream_open:
             for each_trial in trials:
-                trial_samples = each_trial['samples']
+                trial_samples = each_trial["samples"]
                 for each_sample in trial_samples:
-                    yield each_sample, each_trial['trial']
+                    yield each_sample, each_trial["trial"]
         return
 
     def get_subject_entries(self) -> list:
         relevant_trials = self.get_trials_by_type(self.selected_trial_type)
-        filtered_source_entries = filter(lambda entry: entry.source_name == self.name, SubjectEntry.ALL_SUBJECT_ENTRIES)
-        filtered_subject_entries = filter(lambda entry: entry.subject == self.ascended_being, filtered_source_entries)
-        subject_entry_list = filter(lambda entry: entry.trial in relevant_trials, filtered_subject_entries)
-        return list(subject_entry_list)
+        filtered_subject_entries = filter(lambda entry: entry["subject"] == self.ascended_being, self.subject_entries)
+        filtered_trial_entries = filter(lambda entry: entry["trial"] in relevant_trials, list(filtered_subject_entries))
+        return list(filtered_trial_entries)
 
     def get_trials_by_type(self, trial_type: str = None) -> list:
         if not trial_type:
@@ -273,9 +171,69 @@ class DataSource:
 
         return self.trial_mappings[trial_type]
 
+    def preload_user(self, subject: str = None):
+        if not subject:
+            subject = self.ascended_being
+
+        if subject not in self.subject_names:
+            raise ValueError(f'Designated subject is not a valid subject: {subject}')
+
+        subject_entry_list = self.get_subject_entries()
+        for subject_entry in subject_entry_list:
+            if not subject_entry.is_loaded():
+                with open(subject_entry["path"], 'r+') as subject_file:
+                    entry_data = json.load(subject_file)
+                    sample_list = [SampleEntry(**each_sample) for each_sample in entry_data["samples"]]
+                    event_list = [EventEntry(**each_event) for each_event in entry_data["events"]]
+
+                    subject_entry["samples"] = sample_list
+                    subject_entry["events"] = event_list
+        return
+
+    def save_data(self, subject_entries: list = None, human_readable=True):
+        if not subject_entries:
+            subject_entries = self.subject_entries
+
+        num_cpus = cpu_count()
+        use_mp = len(subject_entries) > num_cpus * 2
+        save_pbar = tqdm(total=len(subject_entries), desc=f'Saving SubjectEntry files', file=sys.stdout)
+        if use_mp:
+            with ProcessPoolExecutor(max_workers=num_cpus) as mp_exec:
+                for subject_entry in subject_entries:
+                    save_entry_future = mp_exec.submit(self.save_entry, subject_entry, human_readable)
+                    save_entry_future.arg = save_pbar
+                    save_entry_future.add_done_callback(self.__future_pbar_update)
+        else:
+            for subject_entry in subject_entries:
+                self.save_entry(subject_entry, human_readable)
+                save_pbar.update(1)
+        save_pbar.close()
+        return
+
+    @staticmethod
+    def __future_pbar_update(future):
+        pbar = future.arg
+        pbar.update(1)
+        return
+
+    def save_entry(self, subject_entry, human_readable=False):
+        entry_trial = subject_entry["trial"]
+        subject_name = subject_entry["subject"]
+
+        subject_save_dir = os.path.join(DATA_DIR, self.name, subject_name)
+        if not os.path.isdir(subject_save_dir):
+            os.makedirs(subject_save_dir)
+
+        subject_entry_fname = os.path.join(subject_save_dir, f'{entry_trial}.json')
+        with open(subject_entry_fname, 'w+') as subject_entry_file:
+            if human_readable:
+                json.dump(subject_entry, subject_entry_file, indent=2)
+            else:
+                json.dump(subject_entry, subject_entry_file)
+        return
+
 
 def main():
-    ds = DataSource()
     return
 
 

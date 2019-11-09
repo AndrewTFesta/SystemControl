@@ -71,7 +71,7 @@ class RecordedDataSource(DataSource):
 
         sample_list = [
             SampleEntry(
-                idx=sample_idx, time=idx_to_time(sample_idx, self.sample_freq),
+                idx=sample_idx, timestamp=idx_to_time(sample_idx, self.sample_freq),
                 data=each_sample['data']
             )
             for sample_idx, each_sample in enumerate(trial_samples)

@@ -8,6 +8,9 @@ version = '0.1'
 SOURCE_PACKAGE = os.path.split(__file__)[0]
 PROJECT_PATH = os.path.split(SOURCE_PACKAGE)[0]
 
+RESOURCES_DIR = os.path.join(SOURCE_PACKAGE, 'resources')
+IMAGES_DIR = os.path.join(RESOURCES_DIR, 'images')
+
 OBCI_PYTHON_DIR = os.path.join(SOURCE_PACKAGE, 'OBciPython',)
 OPENBCI_HUB_NAME = 'OpenBCIHub.exe'
 HUB_EXE = os.path.join(OBCI_PYTHON_DIR, 'OpenBCI_GUI', 'data', 'OpenBCIHub', OPENBCI_HUB_NAME)
@@ -20,6 +23,8 @@ TERMINAL_COLUMNS, TERMINAL_ROWS = shutil.get_terminal_size()
 
 def __init_dirs() -> None:
     dir_list = [
+        RESOURCES_DIR,
+        IMAGES_DIR,
         LOG_DIR,
         DATA_DIR
     ]
