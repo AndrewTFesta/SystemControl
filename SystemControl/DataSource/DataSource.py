@@ -6,8 +6,7 @@ import json
 import os
 import sys
 import time
-from concurrent.futures.process import ProcessPoolExecutor
-from multiprocessing import cpu_count
+import multiprocessing as mp
 
 from tqdm import tqdm
 
@@ -187,30 +186,35 @@ class DataSource:
                     subject_entry["events"] = event_list
         return
 
-    def save_data(self, subject_entries: list = None, human_readable=True):
+    def save_data(self, subject_entries: list = None, human_readable=True, use_mp: bool = True):
         if not subject_entries:
             subject_entries = self.subject_entries
 
-        num_cpus = cpu_count()
-        use_mp = len(subject_entries) > num_cpus * 2
-        save_pbar = tqdm(total=len(subject_entries), desc=f'Saving SubjectEntry files', file=sys.stdout)
+        num_cpus = mp.cpu_count()
         if use_mp:
-            with ProcessPoolExecutor(max_workers=num_cpus) as mp_exec:
-                for subject_entry in subject_entries:
-                    save_entry_future = mp_exec.submit(self.save_entry, subject_entry, human_readable)
-                    save_entry_future.arg = save_pbar
-                    save_entry_future.add_done_callback(self.__future_pbar_update)
+            print(f'Using max {num_cpus} processes to save subject {len(subject_entries)} entries')
+            mp_pool = mp.Pool(processes=num_cpus)
+            save_pbar = tqdm(total=len(subject_entries), desc=f'Saving SubjectEntry files', file=sys.stdout)
+
+            def process_success(future):
+                save_pbar.update(1)
+                return
+
+            for subject_entry in subject_entries:
+                mp_pool.apply_async(
+                    self.save_entry, (subject_entry, human_readable),
+                    callback=process_success,
+                )
+            mp_pool.close()
+            mp_pool.join()
+            save_pbar.close()
         else:
+            print(f'Using a single process to save subject {len(subject_entries)} entries')
+            save_pbar = tqdm(total=len(subject_entries), desc=f'Saving SubjectEntry files', file=sys.stdout)
             for subject_entry in subject_entries:
                 self.save_entry(subject_entry, human_readable)
                 save_pbar.update(1)
-        save_pbar.close()
-        return
-
-    @staticmethod
-    def __future_pbar_update(future):
-        pbar = future.arg
-        pbar.update(1)
+            save_pbar.close()
         return
 
     def save_entry(self, subject_entry, human_readable=False):

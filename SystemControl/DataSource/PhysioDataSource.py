@@ -21,8 +21,10 @@
             the right fist (in runs 3, 4, 7, 8, 11, and 12)
             both feet (in runs 5, 6, 9, 10, 13, and 14)
 """
+import multiprocessing as mp
 import os
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -45,7 +47,7 @@ def int_to_run_str(run_int):
 
 class PhysioDataSource(DataSource):
 
-    def __init__(self, subject: str = None, log_level: str = 'CRITICAL'):
+    def __init__(self, subject: str = None, trial_type: str = None, log_level: str = 'CRITICAL'):
         mne.set_log_level(log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
         super().__init__(log_level)
 
@@ -61,14 +63,14 @@ class PhysioDataSource(DataSource):
             'motor_imagery_hands_feet': [int_to_run_str(each_run) for each_run in [6, 10, 14]]
         }
         self.trial_types = list(self.__trial_mappings.keys())
-        self.selected_trial_type = self.trial_types[4]
         self.event_names = ['T0', 'T1', 'T2']
         self.ascended_being = subject if subject else self.subject_names[0]
+        self.selected_trial_type = trial_type if trial_type else self.trial_types[4]
 
         self._validated = False
         if not self.__validate_dataset():
-            subject_entries = self.__download_dataset()
-            self.save_data(subject_entries, human_readable=True)
+            subject_entries = self.__download_dataset(use_mp=True, debug=False)
+            self.save_data(subject_entries, human_readable=True, use_mp=True)
 
         self.load_data()
         self.set_subject(self.ascended_being)
@@ -89,7 +91,7 @@ class PhysioDataSource(DataSource):
         cleaned_raw_edf = cleaned_raw_edf.filter(7., 30., fir_design='firwin', skip_by_annotation='edge')
         return cleaned_raw_edf
 
-    def __download_dataset(self, force_download=False, force_unzip=False):
+    def __download_dataset(self, force_download=False, force_unzip=False, use_mp: bool = True, debug: bool = False):
         external_name = 'eeg-motor-movementimagery-dataset-1.0.0'
         external_zip_url = urllib.parse.urljoin(
             'https://physionet.org/static/published-projects/eegmmidb/',
@@ -116,47 +118,82 @@ class PhysioDataSource(DataSource):
         print(f'Time to find json files: {time_end - time_start:.4f} seconds')
         print(f'Found {len(physio_files)} JSON files')
 
+        # limiter for debug purposes
+        if debug:
+            physio_files = physio_files[:32]
+
         subject_entry_list = []
-        for each_file in tqdm(physio_files, desc=f'Reformatting as SubjectEntry objects', file=sys.stdout):
-            f_basename, _ = os.path.splitext(os.path.basename(each_file))
-            entry_subject = f_basename[:4]
-            entry_trial = f_basename[4:]
+        num_cpus = mp.cpu_count()
+        if use_mp:
+            print(f'Using max {num_cpus} processes to reformat {len(physio_files)} files')
+            mp_pool = mp.Pool(processes=num_cpus)
+            pbar = tqdm(total=len(physio_files), desc=f'Reformatting as SubjectEntry objects', file=sys.stdout)
+            subject_list_lock = threading.Lock()
 
-            raw_edf = read_raw_edf(each_file, preload=True, verbose='CRITICAL')
-            cleaned_edf = self.__clean_raw_edf(raw_edf)
-            data = cleaned_edf.get_data()
-            np_data = np.transpose(data)
+            def process_success(future_result):
+                with subject_list_lock:
+                    pbar.update(1)
+                    subject_entry_list.append(future_result)
+                return
 
-            sample_list = []
-            for sample_idx, each_sample in enumerate(np_data):
-                sample_data = {
-                    self.coi[dp_idx]: dp
-                    for dp_idx, dp in enumerate(each_sample.tolist())
-                }
-                sample_entry = SampleEntry(
-                    idx=sample_idx,
-                    timestamp=idx_to_time(sample_idx, self.sample_freq),
-                    data=sample_data
+            for each_file in physio_files:
+                mp_pool.apply_async(
+                    self.reformat_as_subject_entry, (each_file,),
+                    callback=process_success,
                 )
-                sample_list.append(sample_entry)
-
-            events_timings, event_indices = mne.events_from_annotations(cleaned_edf)
-            event_list = []
-            for each_event in events_timings:
-                event_entry = EventEntry(
-                    idx=int(each_event[0]),
-                    timestamp=idx_to_time(each_event[0], self.sample_freq),
-                    event_type=self.event_names[each_event[2] - 1]
-                )
-                event_list.append(event_entry)
-
-            subject_entry = SubjectEntry(
-                path=each_file, source_name=self.name, subject=entry_subject,
-                trial_type=self.__trial_type_from_name(entry_trial), trial_name=entry_trial,
-                samples=sample_list, events=event_list
-            )
-            subject_entry_list.append(subject_entry)
+            mp_pool.close()
+            mp_pool.join()
+            pbar.close()
+        else:
+            print(f'Using a single process to reformat {len(physio_files)} files')
+            pbar = tqdm(total=len(physio_files), desc=f'Reformatting as SubjectEntry objects', file=sys.stdout)
+            for each_file in physio_files:
+                subject_entry = self.reformat_as_subject_entry(each_file)
+                subject_entry_list.append(subject_entry)
+                pbar.update(1)
+            pbar.close()
         return subject_entry_list
+
+    def reformat_as_subject_entry(self, file_name):
+        mne.set_log_level('CRITICAL')  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
+        f_basename, _ = os.path.splitext(os.path.basename(file_name))
+        entry_subject = f_basename[:4]
+        entry_trial = f_basename[4:]
+
+        raw_edf = read_raw_edf(file_name, preload=True, verbose='CRITICAL')
+        cleaned_edf = self.__clean_raw_edf(raw_edf)
+        data = cleaned_edf.get_data()
+        np_data = np.transpose(data)
+
+        sample_list = []
+        for sample_idx, each_sample in enumerate(np_data):
+            sample_data = {
+                self.coi[dp_idx]: dp
+                for dp_idx, dp in enumerate(each_sample.tolist())
+            }
+            sample_entry = SampleEntry(
+                idx=sample_idx,
+                timestamp=idx_to_time(sample_idx, self.sample_freq),
+                data=sample_data
+            )
+            sample_list.append(sample_entry)
+
+        events_timings, event_indices = mne.events_from_annotations(cleaned_edf)
+        event_list = []
+        for each_event in events_timings:
+            event_entry = EventEntry(
+                idx=int(each_event[0]),
+                timestamp=idx_to_time(each_event[0], self.sample_freq),
+                event_type=self.event_names[each_event[2] - 1]
+            )
+            event_list.append(event_entry)
+
+        subject_entry = SubjectEntry(
+            path=file_name, source_name=self.name, subject=entry_subject,
+            trial_type=self.__trial_type_from_name(entry_trial), trial_name=entry_trial,
+            samples=sample_list, events=event_list
+        )
+        return subject_entry
 
     def __validate_dataset(self) -> bool:
         if self._validated:
@@ -193,9 +230,9 @@ def main():
     physio_ds = PhysioDataSource()
     print(physio_ds.subject_names)
 
-    for sample, event in physio_ds:
-        print(f'{sample["idx"]}:{sample["timestamp"]:<10.4f}::'
-              f'{event["idx"]:>7d}:{event["timestamp"]}:{event["event_type"]}')
+    # for sample, event in physio_ds:
+    #     print(f'{sample["idx"]}:{sample["timestamp"]:<10.4f}::'
+    #           f'{event["idx"]:>7d}:{event["timestamp"]}:{event["event_type"]}')
     return
 
 

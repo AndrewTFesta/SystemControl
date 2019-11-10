@@ -3,29 +3,37 @@
 @description
 """
 import hashlib
-import json
-import os
 import time
-from enum import Enum
+from enum import Enum, auto
 
 import cv2
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
+from PIL import Image
+from matplotlib import style, animation
 from scipy.interpolate import interp1d
-from sklearn.preprocessing import minmax_scale
-from tqdm import tqdm
 
-from SystemControl import DATA_DIR
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
-from SystemControl.DataSource.RecordedDataSource import RecordedDataSource
-from SystemControl.utilities import find_files_by_type
+
+matplotlib.use('Qt5Agg')
+style.use('ggplot')
 
 
 class CMAP(Enum):
-    rocket_r = 0
-    YlGnBu = 1
+    rocket_r = auto()
+    YlGnBu = auto()
+    Spectral = auto()
+    Blues = auto()
+    BuGn = auto()
+    BuPu = auto()
+    Greens = auto()
+    OrRd = auto()
+    Oranges = auto()
+    PuBu = auto()
+    Reds = auto()
+    gist_heat = auto()
 
 
 class Interpolation(Enum):
@@ -34,21 +42,113 @@ class Interpolation(Enum):
     CUBIC = 2
 
 
-def build_heatmap(image_slice: np.ndarray, cmap=CMAP.rocket_r, normalize=True):
-    # todo use funcanimation to speed up building and saving
-    if normalize:
-        image_slice = minmax_scale(image_slice, feature_range=(0, 255), axis=0, copy=True)
-    heat_map = sns.heatmap(image_slice, xticklabels=False, yticklabels=False, cmap=cmap.name, cbar=False)
-    sns.despine(fig=None, ax=None, top=False, right=False, left=False, bottom=False, offset=None, trim=False)
+class DataTransformer:
 
-    fig = heat_map.get_figure()
-    fig.tight_layout(pad=0)
-    fig.canvas.draw()
+    def __init__(self, data_source: DataSource, window_length: float, num_rows: int = 100, ):
+        self.data_source = data_source
+        self.window_length = window_length
 
-    image_from_plot = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    image_from_plot = image_from_plot.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    plt.close()
-    return image_from_plot
+        self._update_delay = 1. / self.data_source.sample_freq
+        self.cmap = matplotlib.cm.get_cmap(CMAP.gist_heat.name)
+
+        # image array setup and data
+        self.num_rows = num_rows
+        self.num_cols = int(data_source.sample_freq * window_length)
+        self._linear_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+        self._quad_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+        self._cubic_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+
+        # figure settings
+        ###################################################
+        self._fig = plt.figure(facecolor='white')
+        self._fig.subplots_adjust(
+            # left=0.1,  # the left side of the subplots of the figure
+            # right=0.7,  # the right side of the subplots of the figure
+            # bottom=0.1,  # the bottom of the subplots of the figure
+            # top=0.9,  # the top of the subplots of the figure
+            # wspace=0.9,  # the amount of width reserved for blank space between subplots
+            hspace=0.9,  # the amount of height reserved for white space between subplots
+        )
+
+        self._axes_text = self._fig.add_subplot(6, 1, 1)
+        self._axes_linear = self._fig.add_subplot(4, 1, 2)
+        self._axes_quad = self._fig.add_subplot(4, 1, 3)
+        self._axes_cubic = self._fig.add_subplot(4, 1, 4)
+
+        self._axes_idx_text_artist = self._axes_text.text(
+            x=0.5, y=0.5, s='Sample time: 0',
+            ha="center", va="top"
+        )
+        self._axes_text.set_facecolor('white')
+        self._axes_text.set_xticks([])
+        self._axes_text.set_yticks([])
+
+        self._linear_img_artist = self._axes_linear.imshow(self._linear_im_data)
+        self._axes_linear.set_xlabel('Linear interpolation')
+        self._axes_linear.set_xticks([])
+        self._axes_linear.set_yticks([])
+        # x0, x1 = self._axes_linear.get_xlim()
+        # y0, y1 = self._axes_linear.get_ylim()
+        # self._axes_linear.set_aspect(abs(x1 - x0) / abs(y1 - y0))
+
+        self._quad_img_artist = self._axes_quad.imshow(self._quad_im_data)
+        self._axes_quad.set_xlabel('Quadratic interpolation')
+        self._axes_quad.set_xticks([])
+        self._axes_quad.set_yticks([])
+        # x0, x1 = self._axes_quad.get_xlim()
+        # y0, y1 = self._axes_quad.get_ylim()
+        # self._axes_quad.set_aspect(abs(x1 - x0) / abs(y1 - y0))
+
+        self._cub_img_artist = self._axes_cubic.imshow(self._cubic_im_data)
+        self._axes_cubic.set_xlabel('Cubic interpolation')
+        self._axes_cubic.set_xticks([])
+        self._axes_cubic.set_yticks([])
+        # x0, x1 = self._axes_cubic.get_xlim()
+        # y0, y1 = self._axes_cubic.get_ylim()
+        # self._axes_cubic.set_aspect(abs(x1 - x0) / abs(y1 - y0))
+
+        self._ani = animation.FuncAnimation(
+            self._fig, self.update_heatmap, self.data_source, interval=self._update_delay, blit=True, repeat=False
+        )
+        ###################################################
+        plt.show()
+        return
+
+    def update_heatmap(self, update_args):
+        sample_entry = update_args[0]
+        sample_idx = sample_entry["idx"]
+        sample_data = sample_entry["data"]
+        data_vals = np.array(list(sample_data.values()))
+        changed_artists = []
+
+        self._axes_idx_text_artist.set_text(f'Sample number: {sample_idx}')
+        changed_artists.append(self._axes_idx_text_artist)
+        
+        lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
+        lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
+        self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
+        self._linear_im_data = self._linear_im_data[:, 1:]
+        linear_color_image = self.cmap(self._linear_im_data)[:, :, :-1]
+        self._linear_img_artist.set_data(linear_color_image)
+        changed_artists.append(self._linear_img_artist)
+
+        quad_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.QUADRATIC)
+        quad_norm_vals = (quad_col_vals - np.min(quad_col_vals)) / np.ptp(quad_col_vals)
+        self._quad_im_data = np.column_stack([self._quad_im_data, quad_norm_vals])
+        self._quad_im_data = self._quad_im_data[:, 1:]
+        quad_color_image = self.cmap(self._quad_im_data)[:, :, :-1]
+        self._quad_img_artist.set_data(quad_color_image)
+        changed_artists.append(self._quad_img_artist)
+
+        cub_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.CUBIC)
+        cub_norm_vals = (cub_col_vals - np.min(cub_col_vals)) / np.ptp(cub_col_vals)
+        self._cubic_im_data = np.column_stack([self._cubic_im_data, cub_norm_vals])
+        self._cubic_im_data = self._cubic_im_data[:, 1:]
+        cubic_color_image = self.cmap(self._cubic_im_data)[:, :, :-1]
+        self._cub_img_artist.set_data(cubic_color_image)
+        changed_artists.append(self._cub_img_artist)
+
+        return changed_artists
 
 
 def interpolate_row(row_sample: np.ndarray, num_rows: int, interp_type: Interpolation):
@@ -65,181 +165,23 @@ def interpolate_row(row_sample: np.ndarray, num_rows: int, interp_type: Interpol
     return new_y
 
 
-def slice2img(data_slice: np.ndarray, row_spacing: int, interpolation: Interpolation):
-    # beginning of slice corresponds to values earlier in time
-    # place one row between each and one at either end
-    # add number of rows once more to account for each signal
-    num_rows = (data_slice.shape[1] + 1) * row_spacing + data_slice.shape[1]
-
-    spaced_slice = []
-    for each_row in data_slice:
-        interp_row = interpolate_row(each_row, num_rows=num_rows, interp_type=interpolation)
-        spaced_slice.append(interp_row)
-    np_spaced_slice = np.transpose(spaced_slice)
-    return np_spaced_slice
-
-
-def slice_data(trial_info, num_start_samples_padding, num_samples_after_event) -> dict:
-    data_samples = trial_info["samples"]
-    data_events = trial_info["events"]
-
-    # event_boundaries = [each_event.idx for each_event in data_events]
-    event_names = [each_event["event_type"] for each_event in data_events]
-    slice_dict = {event_name: [] for event_name in np.unique(event_names)}
-
-    for each_event in data_events:
-        new_slice = extract_slice(data_samples, each_event["idx"], num_start_samples_padding, num_samples_after_event)
-        if new_slice:
-            slice_dict[each_event["event_type"]].append(new_slice)
-    return slice_dict
-
-
-def extract_slice(data, event_onset: int, num_start_samples_padding: int, num_samples_after_event: int):
-    start_sample_idx = event_onset - num_start_samples_padding
-    end_sample_idx = event_onset + num_samples_after_event
-
-    # set boundary conditions for start and end of slice
-    if start_sample_idx < 0:
-        start_sample_idx = 0
-    if end_sample_idx >= len(data):
-        end_sample_idx = -1
-
-    data_slice = data[start_sample_idx:end_sample_idx]
-    return data_slice
-
-
 def img_id(data_entry: np.ndarray):
     entry_hash = hashlib.sha3_256(data_entry.tobytes()).hexdigest()
     return entry_hash
 
 
-def generate_heatmap_dataset(
-        data_source: DataSource, subject: str, start_padding: float, end_padding: float, spacing: int,
-        interpolation: Interpolation, cmap: CMAP, timing_resolution: int, verbose: bool = True
-):
-    if verbose:
-        print('------------------------------------------')
-        print(f'Generating dataset')
-        print(f'\tsubject: {subject}, spad: {start_padding:0.2f}, epad: {end_padding:0.2f}')
-        print(f'\tspacing: {spacing}, interp: {interpolation.name}, cmap: {cmap.name}, res: {timing_resolution}')
-        print('------------------------------------------')
-    freq = data_source.sample_freq
-    num_start_samples_padding = int(freq * start_padding)
-    num_samples_after_event = int(freq * end_padding)
-
-    s_time = time.time()
-    ds_trials = data_source.get_subject_entries()  # todo for RecordedDataSet
-    data_slice_dict = {}
-    for each_trial in ds_trials:
-        trial_slices = slice_data(each_trial, num_start_samples_padding, num_samples_after_event)
-        data_slice_dict[each_trial["trial"]] = trial_slices
-    e_time = time.time()
-    if verbose:
-        print(f'Time to slice data: {e_time - s_time:0.4f} seconds')
-
-    s_time = time.time()
-    img_slice_dict = {
-        each_event: []
-        for each_event in data_source.event_names
-    }
-    for trial_name, event_dict in data_slice_dict.items():
-        for event_name, event_slices in event_dict.items():
-            for each_slice in event_slices:
-                slice_signals = np.array([list(each_entry["data"].values()) for each_entry in each_slice])
-                slice_img = slice2img(slice_signals, row_spacing=spacing, interpolation=interpolation)
-                img_slice_dict[event_name].append(slice_img)
-    e_time = time.time()
-    if verbose:
-        print(f'Time to convert slices to images: {e_time - s_time:0.4f} seconds')
-
-    s_time = time.time()
-    heatmap_dict = {
-        each_event: []
-        for each_event in data_source.event_names
-    }
-    for img_event, img_slice_list in img_slice_dict.items():
-        for img_slice in img_slice_list:
-            heatmap_image = build_heatmap(img_slice, cmap=cmap)
-            heatmap_dict[img_event].append(heatmap_image)
-    e_time = time.time()
-    if verbose:
-        print(f'Time to build heatmaps: {e_time - s_time:0.4f} seconds')
-
-    dataset_dir = os.path.join(
-        DATA_DIR, 'heatmaps', data_source.name,
-        f'spad_{int(start_padding * timing_resolution)}', f'epad_{int(end_padding * timing_resolution)}',
-        f'{interpolation.name}', f'{subject}'
-    )
-    s_time = time.time()
-    for heatmap_event, heatmap_list in heatmap_dict.items():
-        event_dir = os.path.join(dataset_dir, f'{heatmap_event}')
-
-        if not os.path.isdir(event_dir):
-            os.makedirs(event_dir)
-        for heatmap_idx, each_heatmap in enumerate(heatmap_list):
-            out_fname = os.path.join(event_dir, f'{img_id(each_heatmap)}.png')
-            if os.path.isfile(out_fname):
-                os.remove(out_fname)
-            # opencv faster than pillow: 2.63 it/s PIL vs 3.48 it/s CV2
-            # opencv faster than pyvips: 10.0500 s pyvips vs 8.9690 s opencv2
-            cv2.imwrite(out_fname, each_heatmap)
-    e_time = time.time()
-    if verbose:
-        print(f'Time to save images: {e_time - s_time:0.4f} seconds')
-        print('------------------------------------------')
-        print(f'Generating dataset completed')
-        print('------------------------------------------')
-    return dataset_dir
-
-
 def main():
-    # data_source = PhysioDataSource()
-    data_source = RecordedDataSource()
+    subject_name = 'S001'
+    trial_type = 'motor_imagery_right_left'
+    window_length = 0.2  # length in seconds
+    num_rows = 200
 
-    timing_resolution = 100
-    start_padding = int(0.1 * timing_resolution) / timing_resolution
-    end_padding_range = [
-        int(each_epad * timing_resolution) / timing_resolution
-        for each_epad in [0.1, 0.2, 0.3, 0.4, 0.5]
-    ]
-    spacing = 100
-    cmap = CMAP.rocket_r
-    verbose = False
-
-    total_count = len(data_source.subject_names[:2])
-    total_count *= len(Interpolation.__members__)
-    total_count *= len(end_padding_range)
-
-    pbar = tqdm(total=total_count, desc='Generating heatmap dataset')
-    timing_dict = {}
-    for each_subject in data_source.subject_names[:2]:
-        pbar.set_description(f'Generating heatmap dataset: {each_subject}')
-        data_source.set_subject(each_subject)
-        timing_dict[each_subject] = {}
-        for each_interpolation in Interpolation:
-            timing_dict[each_subject][each_interpolation.name] = {}
-            for each_end_padding in end_padding_range:
-                s_time = time.time()
-                heatmap_dir = generate_heatmap_dataset(
-                    data_source=data_source, subject=each_subject, interpolation=each_interpolation,
-                    end_padding=each_end_padding, start_padding=start_padding, spacing=spacing,
-                    cmap=cmap, timing_resolution=timing_resolution, verbose=verbose
-                )
-                e_time = time.time()
-                d_time = e_time - s_time
-                num_images = len(find_files_by_type('png', heatmap_dir))
-                timing_dict[each_subject][each_interpolation.name][each_end_padding] = {
-                    'time': d_time, 'num_images': num_images
-                }
-                pbar.update(1)
-    pbar.close()
-
-    save_dir = os.path.join(DATA_DIR, 'timings')
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
-    timing_fname = os.path.join(save_dir, f'generate_{data_source.name}_heatmap_dataset.json')
-    with open(timing_fname, 'w+') as timing_file:
-        json.dump(timing_dict, timing_file, indent=2)
+    data_source = PhysioDataSource(subject=subject_name, trial_type=trial_type)
+    s_time = time.time()
+    data_transformer = DataTransformer(data_source, window_length=window_length, num_rows=num_rows)
+    e_time = time.time()
+    d_time = e_time - s_time
+    print(f'Time to iterate over entire trial: {d_time:0.4f}')
     return
 
 

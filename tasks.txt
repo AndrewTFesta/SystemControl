@@ -1,14 +1,12 @@
 todo recorded data source
-todo trial type at start of name of trial file
 todo recording sessions obci
-todo modelpool for testing different number of subjects vs accuracy
 
 todo catch sigkill and save data
+todo decouple stimulusgenerator from datasource
 todo command line args trialrecorder
 todo logging of trialrecorder
 todo logging of udpclient
 todo logging of stimulus generator
-todo decouple stimulusgenerator from datasource
 
 todo fix visualizer
 todo create init functions in visualizer

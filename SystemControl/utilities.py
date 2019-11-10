@@ -225,10 +225,6 @@ def download_large_file(url_path, save_directory, c_size: int = 512,
     :return:
     """
     try:
-        print('Starting file download...')
-        response = requests.get(url_path, stream=True)
-        headers = response.headers
-
         if not os.path.exists(save_directory):
             os.makedirs(save_directory)
 
@@ -247,6 +243,10 @@ def download_large_file(url_path, save_directory, c_size: int = 512,
             else:
                 print('Removing previously downloaded file')
                 os.remove(local_fname)
+
+        print('Starting file download...')
+        response = requests.get(url_path, stream=True)
+        headers = response.headers
 
         content_length = int(headers['content-length'])
         part_file = os.path.join(save_directory, '{}.part_{}'.format(remote_fname_name, file_type))
