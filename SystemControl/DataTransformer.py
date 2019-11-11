@@ -74,137 +74,89 @@ class DataTransformer:
         self.num_rows = num_rows
         self.num_cols = int(data_source.sample_freq * window_length)
 
-        self.linear_images = []
-        self.quadratic_images = []
-        self.cubic_images = []
-
         self.base_dir = os.path.join(
             DATA_DIR, 'heatmaps', data_source.name,
             f'window_length_{window_length:0.2f}', f'subject_{data_source.ascended_being}'
         )
 
-        self.linear_data_dir = os.path.join(self.base_dir, 'linear')
-        if not os.path.isdir(self.linear_data_dir):
-            os.makedirs(self.linear_data_dir)
+        self.image_lists = {}
+        for interp_type in Interpolation:
+            data_dir = os.path.join(self.base_dir, interp_type.name)
+            if not os.path.isdir(data_dir):
+                os.makedirs(data_dir)
+            self.image_lists[interp_type.name] = {"images": [], "data_dir": data_dir}
+        # self.linear_images = []
+        # self.quadratic_images = []
+        # self.cubic_images = []
 
-        self.quadratic_data_dir = os.path.join(self.base_dir, 'quadratic')
-        if not os.path.isdir(self.quadratic_data_dir):
-            os.makedirs(self.quadratic_data_dir)
-
-        self.cubic_data_dir = os.path.join(self.base_dir, 'cubic')
-        if not os.path.isdir(self.cubic_data_dir):
-            os.makedirs(self.cubic_data_dir)
+        # self.linear_data_dir = os.path.join(self.base_dir, 'linear')
+        # if not os.path.isdir(self.linear_data_dir):
+        #     os.makedirs(self.linear_data_dir)
+        #
+        # self.quadratic_data_dir = os.path.join(self.base_dir, 'quadratic')
+        # if not os.path.isdir(self.quadratic_data_dir):
+        #     os.makedirs(self.quadratic_data_dir)
+        #
+        # self.cubic_data_dir = os.path.join(self.base_dir, 'cubic')
+        # if not os.path.isdir(self.cubic_data_dir):
+        #     os.makedirs(self.cubic_data_dir)
 
         # image array setup and data
-        self._linear_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
-        self._quad_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
-        self._cubic_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
-        return
-
-    def init_heatmap_data(self, data_iterator):
-        for entry in data_iterator:
-            sample_entry = entry[0]
-            sample_idx = sample_entry["idx"]
-            if sample_idx >= self.num_cols:
-                break
-
-            sample_data = sample_entry["data"]
-            data_vals = np.array(list(sample_data.values()))
-
-            lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
-            lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
-            self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
-            self._linear_im_data = self._linear_im_data[:, 1:]
-
-            quad_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.QUADRATIC)
-            quad_norm_vals = (quad_col_vals - np.min(quad_col_vals)) / np.ptp(quad_col_vals)
-            self._quad_im_data = np.column_stack([self._quad_im_data, quad_norm_vals])
-            self._quad_im_data = self._quad_im_data[:, 1:]
-
-            cub_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.CUBIC)
-            cub_norm_vals = (cub_col_vals - np.min(cub_col_vals)) / np.ptp(cub_col_vals)
-            self._cubic_im_data = np.column_stack([self._cubic_im_data, cub_norm_vals])
-            self._cubic_im_data = self._cubic_im_data[:, 1:]
+        # self._linear_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+        # self._quad_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+        # self._cubic_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
         return
 
     def compute_images(self, spacing: float = 0.2):
         data_iter = self.data_source.window_generator(window_length=self.window_length, spacing=spacing)
-        # self.init_heatmap_data(data_iter)
-        # pbar = tqdm(
-        #     total=int((self.data_source.get_num_samples() - self.num_cols) / skip_amount),
-        #     desc=f'Computing images: downsample rate: {skip_amount}',
-        #     file=sys.stdout
-        # )
+        pbar = tqdm(
+            desc=f'Computing images: length: {self.window_length}, spacing: {spacing}',
+            file=sys.stdout
+        )
         for entry in data_iter:
             sample_list = entry[0]
             event_entry = entry[1]
             event_type = event_entry["event_type"]
+            sample_idx = sample_list[0]["idx"]
 
+            lin_window_data = np.zeros((self.num_rows, 0), dtype='float32')
+            quad_window_data = np.zeros((self.num_rows, 0), dtype='float32')
+            cubic_window_data = np.zeros((self.num_rows, 0), dtype='float32')
             for sample_entry in sample_list:
-                sample_idx = sample_entry["idx"]
                 sample_data = sample_entry["data"]
                 data_vals = np.array(list(sample_data.values()))
 
+                #####
                 lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
                 lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
-                self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
-                self._linear_im_data = self._linear_im_data[:, 1:]
-                try:
-                    float32_img = self._linear_im_data.astype('float32')
-                    linear_color_image = self.cmap(float32_img)[:, :, :-1]
-                    self.linear_images.append({"idx": sample_idx, "event": event_type, "image": linear_color_image})
-                except MemoryError as me:
-                    print(str(me))
-                except OSError as oe:
-                    print(str(oe))
-            # sample_idx = sample_entry["idx"]
-            # sample_data = sample_entry["data"]
-            #
-            # event_entry = entry[1]
-            # event_type = event_entry["event_type"]
-            # data_vals = np.array(list(sample_data.values()))
-            #
-            # lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
-            # lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
-            # self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
-            # self._linear_im_data = self._linear_im_data[:, 1:]
-            # try:
-            #     float32_img = self._linear_im_data.astype('float32')
-            #     linear_color_image = self.cmap(float32_img)[:, :, :-1]
-            #     self.linear_images.append({"idx": sample_idx, "event": event_type, "image": linear_color_image})
-            # except MemoryError as me:
-            #     print(str(me))
-            # except OSError as oe:
-            #     print(str(oe))
-
-            # quad_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.QUADRATIC)
-            # quad_norm_vals = (quad_col_vals - np.min(quad_col_vals)) / np.ptp(quad_col_vals)
-            # self._quad_im_data = np.column_stack([self._quad_im_data, quad_norm_vals])
-            # self._quad_im_data = self._quad_im_data[:, 1:]
-            # try:
-            #     float32_img = self._quad_im_data.astype('float32')
-            #     quad_color_image = self.cmap(float32_img)[:, :, :-1]
-            #     self.quadratic_images.append({"idx": sample_idx, "event": event_type, "image": quad_color_image})
-            # except MemoryError as me:
-            #     print(str(me))
-            # except OSError as oe:
-            #     print(str(oe))
-            #
-            # cub_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.CUBIC)
-            # cub_norm_vals = (cub_col_vals - np.min(cub_col_vals)) / np.ptp(cub_col_vals)
-            # self._cubic_im_data = np.column_stack([self._cubic_im_data, cub_norm_vals])
-            # self._cubic_im_data = self._cubic_im_data[:, 1:]
-            # try:
-            #     float32_img = self._cubic_im_data.astype('float32')
-            #     cubic_color_image = self.cmap(float32_img)[:, :, :-1]
-            #     self.cubic_images.append({"idx": sample_idx, "event": event_type, "image": cubic_color_image})
-            # except MemoryError as me:
-            #     print(str(me))
-            # except OSError as oe:
-            #     print(str(oe))
-
-            # pbar.update(1)
-        # pbar.close()
+                lin_window_data = np.column_stack([lin_window_data, lin_norm_vals])
+                #####
+                quad_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.QUADRATIC)
+                quad_norm_vals = (quad_col_vals - np.min(quad_col_vals)) / np.ptp(quad_col_vals)
+                quad_window_data = np.column_stack([quad_window_data, quad_norm_vals])
+                #####
+                cubic_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.CUBIC)
+                cubic_norm_vals = (cubic_col_vals - np.min(cubic_col_vals)) / np.ptp(cubic_col_vals)
+                cubic_window_data = np.column_stack([cubic_window_data, cubic_norm_vals])
+                #####
+            #####
+            linear_color_image = self.cmap(lin_window_data)[:, :, :-1]
+            lin_img = cv2.convertScaleAbs(linear_color_image, alpha=255.0)
+            lin_cv_image = cv2.cvtColor(lin_img, cv2.COLOR_RGB2BGR)
+            self.linear_images.append({"idx": sample_idx, "event": event_type, "image": lin_cv_image})
+            #####
+            quad_color_image = self.cmap(quad_window_data)[:, :, :-1]
+            quad_img = cv2.convertScaleAbs(quad_color_image, alpha=255.0)
+            quad_cv_image = cv2.cvtColor(quad_img, cv2.COLOR_RGB2BGR)
+            self.quadratic_images.append({"idx": sample_idx, "event": event_type, "image": quad_cv_image})
+            #####
+            cubic_color_image = self.cmap(cubic_window_data)[:, :, :-1]
+            cubic_img = cv2.convertScaleAbs(cubic_color_image, alpha=255.0)
+            cubic_cv_image = cv2.cvtColor(cubic_img, cv2.COLOR_RGB2BGR)
+            self.cubic_images.append({"idx": sample_idx, "event": event_type, "image": cubic_cv_image})
+            #####
+            pbar.update(1)
+        pbar.close()
         return
 
     def save_heatmaps(self):
@@ -224,10 +176,10 @@ class DataTransformer:
 
             img = entry["image"]
             img_idx = entry["idx"]
-            img = cv2.convertScaleAbs(img, alpha=255.0)
-            cv_image = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            # img = cv2.convertScaleAbs(img, alpha=255.0)
+            # cv_image = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             img_fname = os.path.join(event_dir, f'{img_type}_{img_idx}_{img_id(img)}.png')
-            cv2.imwrite(filename=img_fname, img=cv_image)
+            cv2.imwrite(filename=img_fname, img=img)
             pbar.update(1)
         pbar.close()
         return
@@ -236,7 +188,8 @@ class DataTransformer:
 def main():
     trial_type = 'motor_imagery_right_left'
     data_source = PhysioDataSource(subject=None, trial_type=trial_type)
-    subject_list = data_source.subject_names[:5]
+    num_subjects = 1
+    subject_list = data_source.subject_names[:num_subjects]
     del data_source
     # window_length_list = [0.2 * idx for idx in range(1, 4)]  # length in seconds
     window_length_list = [0.2]  # length in seconds

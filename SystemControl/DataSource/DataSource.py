@@ -8,6 +8,7 @@ import sys
 import time
 import multiprocessing as mp
 
+import numpy as np
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
@@ -103,8 +104,8 @@ class DataSource:
                 curr_event = EventEntry(idx=0, timestamp=0, event_type='None')
 
             for sample in sample_list:
-                while next_event_idx < len(event_list) and sample["timestamp"] >= event_list[next_event_idx][
-                    "timestamp"]:
+                while next_event_idx < len(event_list) \
+                        and sample["timestamp"] >= event_list[next_event_idx]["timestamp"]:
                     next_event_idx += 1
                     curr_event = event_list[next_event_idx - 1]
                 yield sample, curr_event
@@ -131,7 +132,7 @@ class DataSource:
                 curr_event = EventEntry(idx=0, timestamp=0, event_type='None')
 
             for sample in downsampled_list:
-                while next_event_idx < len(event_list)\
+                while next_event_idx < len(event_list) \
                         and sample["timestamp"] >= event_list[next_event_idx]["timestamp"]:
                     next_event_idx += 1
                     curr_event = event_list[next_event_idx - 1]
@@ -148,12 +149,19 @@ class DataSource:
             sample_list = subject_entry["samples"]
             event_list = subject_entry["events"]
 
-            window_samples = sample_list[window_start:num_per_window]
-            window_event = event_list[-1]  # todo if window contains event -> label as that event
-            window_start += num_between_windows
+            while window_start + num_per_window < len(sample_list):
+                window_samples = sample_list[window_start:window_start + num_per_window]
+                last_sample_idx = window_samples[-1]["idx"]
+                window_event = event_list[0]
+                for event in event_list:
+                    if event["idx"] > last_sample_idx:
+                        break
+                    window_event = event
 
-            yield window_samples, window_event
-        pass  # todo
+                window_start += num_between_windows
+
+                yield window_samples, window_event
+        return
 
     def get_num_samples(self):
         total_count = 0
