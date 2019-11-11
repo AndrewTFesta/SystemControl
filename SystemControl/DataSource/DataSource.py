@@ -103,7 +103,8 @@ class DataSource:
                 curr_event = EventEntry(idx=0, timestamp=0, event_type='None')
 
             for sample in sample_list:
-                if next_event_idx < len(event_list) and sample["timestamp"] >= event_list[next_event_idx]["timestamp"]:
+                while next_event_idx < len(event_list) and sample["timestamp"] >= event_list[next_event_idx][
+                    "timestamp"]:
                     next_event_idx += 1
                     curr_event = event_list[next_event_idx - 1]
                 yield sample, curr_event
@@ -114,6 +115,55 @@ class DataSource:
 
     def __repr__(self):
         return self.__str__()
+
+    def downsample_generator(self, skip_amount: int = 2):
+        subject_entry_list = self.get_subject_entries()
+        for subject_entry in subject_entry_list:
+
+            sample_list = subject_entry["samples"]
+            downsampled_list = sample_list[::skip_amount]
+            event_list = subject_entry["events"]
+
+            next_event_idx = 1
+            if event_list:
+                curr_event = event_list[0]
+            else:
+                curr_event = EventEntry(idx=0, timestamp=0, event_type='None')
+
+            for sample in downsampled_list:
+                while next_event_idx < len(event_list)\
+                        and sample["timestamp"] >= event_list[next_event_idx]["timestamp"]:
+                    next_event_idx += 1
+                    curr_event = event_list[next_event_idx - 1]
+                yield sample, curr_event
+        return
+
+    def window_generator(self, window_length: float, spacing: float):
+        num_per_window = int(self.sample_freq * window_length)
+        num_between_windows = int(self.sample_freq * spacing)
+
+        subject_entry_list = self.get_subject_entries()
+        window_start = 0
+        for subject_entry in subject_entry_list:
+            sample_list = subject_entry["samples"]
+            event_list = subject_entry["events"]
+
+            window_samples = sample_list[window_start:num_per_window]
+            window_event = event_list[-1]  # todo if window contains event -> label as that event
+            window_start += num_between_windows
+
+            yield window_samples, window_event
+        pass  # todo
+
+    def get_num_samples(self):
+        total_count = 0
+        subject_entry_list = self.get_subject_entries()
+        for subject_entry in subject_entry_list:
+            sample_list = subject_entry["samples"]
+            last_sample = sample_list[-1]
+            last_sample_idx = last_sample["idx"]
+            total_count += last_sample_idx + 1
+        return total_count
 
     def load_data(self):
         time_start = time.time()

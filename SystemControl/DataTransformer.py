@@ -3,17 +3,20 @@
 @description
 """
 import hashlib
+import os
+import sys
 import time
 from enum import Enum, auto
 
 import cv2
 import matplotlib
-import matplotlib.pyplot as plt
+import matplotlib.cm
 import numpy as np
-from PIL import Image
-from matplotlib import style, animation
+from matplotlib import style
 from scipy.interpolate import interp1d
+from tqdm import tqdm
 
+from SystemControl import DATA_DIR
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
 
@@ -42,115 +45,6 @@ class Interpolation(Enum):
     CUBIC = 2
 
 
-class DataTransformer:
-
-    def __init__(self, data_source: DataSource, window_length: float, num_rows: int = 100, ):
-        self.data_source = data_source
-        self.window_length = window_length
-
-        self._update_delay = 1. / self.data_source.sample_freq
-        self.cmap = matplotlib.cm.get_cmap(CMAP.gist_heat.name)
-
-        # image array setup and data
-        self.num_rows = num_rows
-        self.num_cols = int(data_source.sample_freq * window_length)
-        self._linear_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
-        self._quad_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
-        self._cubic_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
-
-        # figure settings
-        ###################################################
-        self._fig = plt.figure(facecolor='white')
-        self._fig.subplots_adjust(
-            # left=0.1,  # the left side of the subplots of the figure
-            # right=0.7,  # the right side of the subplots of the figure
-            # bottom=0.1,  # the bottom of the subplots of the figure
-            # top=0.9,  # the top of the subplots of the figure
-            # wspace=0.9,  # the amount of width reserved for blank space between subplots
-            hspace=0.9,  # the amount of height reserved for white space between subplots
-        )
-
-        self._axes_text = self._fig.add_subplot(6, 1, 1)
-        self._axes_linear = self._fig.add_subplot(4, 1, 2)
-        self._axes_quad = self._fig.add_subplot(4, 1, 3)
-        self._axes_cubic = self._fig.add_subplot(4, 1, 4)
-
-        self._axes_idx_text_artist = self._axes_text.text(
-            x=0.5, y=0.5, s='Sample time: 0',
-            ha="center", va="top"
-        )
-        self._axes_text.set_facecolor('white')
-        self._axes_text.set_xticks([])
-        self._axes_text.set_yticks([])
-
-        self._linear_img_artist = self._axes_linear.imshow(self._linear_im_data)
-        self._axes_linear.set_xlabel('Linear interpolation')
-        self._axes_linear.set_xticks([])
-        self._axes_linear.set_yticks([])
-        # x0, x1 = self._axes_linear.get_xlim()
-        # y0, y1 = self._axes_linear.get_ylim()
-        # self._axes_linear.set_aspect(abs(x1 - x0) / abs(y1 - y0))
-
-        self._quad_img_artist = self._axes_quad.imshow(self._quad_im_data)
-        self._axes_quad.set_xlabel('Quadratic interpolation')
-        self._axes_quad.set_xticks([])
-        self._axes_quad.set_yticks([])
-        # x0, x1 = self._axes_quad.get_xlim()
-        # y0, y1 = self._axes_quad.get_ylim()
-        # self._axes_quad.set_aspect(abs(x1 - x0) / abs(y1 - y0))
-
-        self._cub_img_artist = self._axes_cubic.imshow(self._cubic_im_data)
-        self._axes_cubic.set_xlabel('Cubic interpolation')
-        self._axes_cubic.set_xticks([])
-        self._axes_cubic.set_yticks([])
-        # x0, x1 = self._axes_cubic.get_xlim()
-        # y0, y1 = self._axes_cubic.get_ylim()
-        # self._axes_cubic.set_aspect(abs(x1 - x0) / abs(y1 - y0))
-
-        self._ani = animation.FuncAnimation(
-            self._fig, self.update_heatmap, self.data_source, interval=self._update_delay, blit=True, repeat=False
-        )
-        ###################################################
-        plt.show()
-        return
-
-    def update_heatmap(self, update_args):
-        sample_entry = update_args[0]
-        sample_idx = sample_entry["idx"]
-        sample_data = sample_entry["data"]
-        data_vals = np.array(list(sample_data.values()))
-        changed_artists = []
-
-        self._axes_idx_text_artist.set_text(f'Sample number: {sample_idx}')
-        changed_artists.append(self._axes_idx_text_artist)
-        
-        lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
-        lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
-        self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
-        self._linear_im_data = self._linear_im_data[:, 1:]
-        linear_color_image = self.cmap(self._linear_im_data)[:, :, :-1]
-        self._linear_img_artist.set_data(linear_color_image)
-        changed_artists.append(self._linear_img_artist)
-
-        quad_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.QUADRATIC)
-        quad_norm_vals = (quad_col_vals - np.min(quad_col_vals)) / np.ptp(quad_col_vals)
-        self._quad_im_data = np.column_stack([self._quad_im_data, quad_norm_vals])
-        self._quad_im_data = self._quad_im_data[:, 1:]
-        quad_color_image = self.cmap(self._quad_im_data)[:, :, :-1]
-        self._quad_img_artist.set_data(quad_color_image)
-        changed_artists.append(self._quad_img_artist)
-
-        cub_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.CUBIC)
-        cub_norm_vals = (cub_col_vals - np.min(cub_col_vals)) / np.ptp(cub_col_vals)
-        self._cubic_im_data = np.column_stack([self._cubic_im_data, cub_norm_vals])
-        self._cubic_im_data = self._cubic_im_data[:, 1:]
-        cubic_color_image = self.cmap(self._cubic_im_data)[:, :, :-1]
-        self._cub_img_artist.set_data(cubic_color_image)
-        changed_artists.append(self._cub_img_artist)
-
-        return changed_artists
-
-
 def interpolate_row(row_sample: np.ndarray, num_rows: int, interp_type: Interpolation):
     interp_str = interp_type.name.lower()
     # add a zero before interpolation to lock either end to ground state
@@ -170,18 +64,211 @@ def img_id(data_entry: np.ndarray):
     return entry_hash
 
 
-def main():
-    subject_name = 'S001'
-    trial_type = 'motor_imagery_right_left'
-    window_length = 0.2  # length in seconds
-    num_rows = 200
+class DataTransformer:
 
-    data_source = PhysioDataSource(subject=subject_name, trial_type=trial_type)
-    s_time = time.time()
-    data_transformer = DataTransformer(data_source, window_length=window_length, num_rows=num_rows)
-    e_time = time.time()
-    d_time = e_time - s_time
-    print(f'Time to iterate over entire trial: {d_time:0.4f}')
+    def __init__(self, data_source: DataSource, window_length: float, num_rows: int = 100):
+        self.data_source = data_source
+        self.window_length = window_length
+        self.num_samples = self.data_source.get_num_samples()
+        self.cmap = matplotlib.cm.get_cmap(CMAP.gist_heat.name)
+        self.num_rows = num_rows
+        self.num_cols = int(data_source.sample_freq * window_length)
+
+        self.linear_images = []
+        self.quadratic_images = []
+        self.cubic_images = []
+
+        self.base_dir = os.path.join(
+            DATA_DIR, 'heatmaps', data_source.name,
+            f'window_length_{window_length:0.2f}', f'subject_{data_source.ascended_being}'
+        )
+
+        self.linear_data_dir = os.path.join(self.base_dir, 'linear')
+        if not os.path.isdir(self.linear_data_dir):
+            os.makedirs(self.linear_data_dir)
+
+        self.quadratic_data_dir = os.path.join(self.base_dir, 'quadratic')
+        if not os.path.isdir(self.quadratic_data_dir):
+            os.makedirs(self.quadratic_data_dir)
+
+        self.cubic_data_dir = os.path.join(self.base_dir, 'cubic')
+        if not os.path.isdir(self.cubic_data_dir):
+            os.makedirs(self.cubic_data_dir)
+
+        # image array setup and data
+        self._linear_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+        self._quad_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+        self._cubic_im_data = np.zeros((self.num_rows, self.num_cols), dtype='float32')
+        return
+
+    def init_heatmap_data(self, data_iterator):
+        for entry in data_iterator:
+            sample_entry = entry[0]
+            sample_idx = sample_entry["idx"]
+            if sample_idx >= self.num_cols:
+                break
+
+            sample_data = sample_entry["data"]
+            data_vals = np.array(list(sample_data.values()))
+
+            lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
+            lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
+            self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
+            self._linear_im_data = self._linear_im_data[:, 1:]
+
+            quad_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.QUADRATIC)
+            quad_norm_vals = (quad_col_vals - np.min(quad_col_vals)) / np.ptp(quad_col_vals)
+            self._quad_im_data = np.column_stack([self._quad_im_data, quad_norm_vals])
+            self._quad_im_data = self._quad_im_data[:, 1:]
+
+            cub_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.CUBIC)
+            cub_norm_vals = (cub_col_vals - np.min(cub_col_vals)) / np.ptp(cub_col_vals)
+            self._cubic_im_data = np.column_stack([self._cubic_im_data, cub_norm_vals])
+            self._cubic_im_data = self._cubic_im_data[:, 1:]
+        return
+
+    def compute_images(self, spacing: float = 0.2):
+        data_iter = self.data_source.window_generator(window_length=self.window_length, spacing=spacing)
+        # self.init_heatmap_data(data_iter)
+        # pbar = tqdm(
+        #     total=int((self.data_source.get_num_samples() - self.num_cols) / skip_amount),
+        #     desc=f'Computing images: downsample rate: {skip_amount}',
+        #     file=sys.stdout
+        # )
+        for entry in data_iter:
+            sample_list = entry[0]
+            event_entry = entry[1]
+            event_type = event_entry["event_type"]
+
+            for sample_entry in sample_list:
+                sample_idx = sample_entry["idx"]
+                sample_data = sample_entry["data"]
+                data_vals = np.array(list(sample_data.values()))
+
+                lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
+                lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
+                self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
+                self._linear_im_data = self._linear_im_data[:, 1:]
+                try:
+                    float32_img = self._linear_im_data.astype('float32')
+                    linear_color_image = self.cmap(float32_img)[:, :, :-1]
+                    self.linear_images.append({"idx": sample_idx, "event": event_type, "image": linear_color_image})
+                except MemoryError as me:
+                    print(str(me))
+                except OSError as oe:
+                    print(str(oe))
+            # sample_idx = sample_entry["idx"]
+            # sample_data = sample_entry["data"]
+            #
+            # event_entry = entry[1]
+            # event_type = event_entry["event_type"]
+            # data_vals = np.array(list(sample_data.values()))
+            #
+            # lin_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.LINEAR)
+            # lin_norm_vals = (lin_col_vals - np.min(lin_col_vals)) / np.ptp(lin_col_vals)
+            # self._linear_im_data = np.column_stack([self._linear_im_data, lin_norm_vals])
+            # self._linear_im_data = self._linear_im_data[:, 1:]
+            # try:
+            #     float32_img = self._linear_im_data.astype('float32')
+            #     linear_color_image = self.cmap(float32_img)[:, :, :-1]
+            #     self.linear_images.append({"idx": sample_idx, "event": event_type, "image": linear_color_image})
+            # except MemoryError as me:
+            #     print(str(me))
+            # except OSError as oe:
+            #     print(str(oe))
+
+            # quad_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.QUADRATIC)
+            # quad_norm_vals = (quad_col_vals - np.min(quad_col_vals)) / np.ptp(quad_col_vals)
+            # self._quad_im_data = np.column_stack([self._quad_im_data, quad_norm_vals])
+            # self._quad_im_data = self._quad_im_data[:, 1:]
+            # try:
+            #     float32_img = self._quad_im_data.astype('float32')
+            #     quad_color_image = self.cmap(float32_img)[:, :, :-1]
+            #     self.quadratic_images.append({"idx": sample_idx, "event": event_type, "image": quad_color_image})
+            # except MemoryError as me:
+            #     print(str(me))
+            # except OSError as oe:
+            #     print(str(oe))
+            #
+            # cub_col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=Interpolation.CUBIC)
+            # cub_norm_vals = (cub_col_vals - np.min(cub_col_vals)) / np.ptp(cub_col_vals)
+            # self._cubic_im_data = np.column_stack([self._cubic_im_data, cub_norm_vals])
+            # self._cubic_im_data = self._cubic_im_data[:, 1:]
+            # try:
+            #     float32_img = self._cubic_im_data.astype('float32')
+            #     cubic_color_image = self.cmap(float32_img)[:, :, :-1]
+            #     self.cubic_images.append({"idx": sample_idx, "event": event_type, "image": cubic_color_image})
+            # except MemoryError as me:
+            #     print(str(me))
+            # except OSError as oe:
+            #     print(str(oe))
+
+            # pbar.update(1)
+        # pbar.close()
+        return
+
+    def save_heatmaps(self):
+        self.save_image_list(self.linear_images, self.linear_data_dir, 'linear')
+        self.save_image_list(self.quadratic_images, self.quadratic_data_dir, 'quadratic')
+        self.save_image_list(self.cubic_images, self.cubic_data_dir, 'cubic')
+        return
+
+    @staticmethod
+    def save_image_list(img_entries, base_dir, img_type):
+        pbar = tqdm(total=len(img_entries), desc=f'Saving images: {img_type}', file=sys.stdout)
+        for entry in img_entries:
+            event_type = entry["event"]
+            event_dir = os.path.join(base_dir, f'{event_type}')
+            if not os.path.isdir(event_dir):
+                os.makedirs(event_dir)
+
+            img = entry["image"]
+            img_idx = entry["idx"]
+            img = cv2.convertScaleAbs(img, alpha=255.0)
+            cv_image = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            img_fname = os.path.join(event_dir, f'{img_type}_{img_idx}_{img_id(img)}.png')
+            cv2.imwrite(filename=img_fname, img=cv_image)
+            pbar.update(1)
+        pbar.close()
+        return
+
+
+def main():
+    trial_type = 'motor_imagery_right_left'
+    data_source = PhysioDataSource(subject=None, trial_type=trial_type)
+    subject_list = data_source.subject_names[:5]
+    del data_source
+    # window_length_list = [0.2 * idx for idx in range(1, 4)]  # length in seconds
+    window_length_list = [0.2]  # length in seconds
+    num_rows = 200
+    spacing = 0.2
+
+    abs_s_time = time.time()
+    for window_length in window_length_list:
+        for subject_name in subject_list:
+            data_source = PhysioDataSource(subject=subject_name, trial_type=trial_type)
+            data_transformer = DataTransformer(data_source, window_length=window_length, num_rows=num_rows)
+
+            s_time = time.time()
+            data_transformer.compute_images()
+            e_time = time.time()
+            d_time = e_time - s_time
+            print(f'Time to compute images: {d_time:0.4f} seconds')
+
+            s_time = time.time()
+            data_transformer.save_heatmaps()
+            e_time = time.time()
+            d_time = e_time - s_time
+            print(f'Time to save images: {d_time:0.4f} seconds')
+
+            print(f'Subject: {subject_name}\nWindow length: {window_length}')
+            print(f'Number of linear images: {len(data_transformer.linear_images)}')
+            print(f'Number of quadratic images: {len(data_transformer.quadratic_images)}')
+            print(f'Number of cubic images: {len(data_transformer.cubic_images)}')
+            print('-----------------------------------------------------------------')
+    abs_e_time = time.time()
+    abs_d_time = abs_e_time - abs_s_time
+    print(f'Time to iterate over all subjects and windows: {abs_d_time:0.4f} seconds')
     return
 
 

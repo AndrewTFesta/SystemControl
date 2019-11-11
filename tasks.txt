@@ -7,9 +7,6 @@ todo command line args trialrecorder
 todo logging of trialrecorder
 todo logging of udpclient
 todo logging of stimulus generator
-
-todo fix visualizer
-todo create init functions in visualizer
 todo add running classifier to visualizer
 
 todo move 'main's into notebooks
