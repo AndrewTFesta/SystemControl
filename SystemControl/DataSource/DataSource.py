@@ -2,70 +2,48 @@
 @title
 @description
 """
+import hashlib
 import json
 import os
-import sys
 import time
-import multiprocessing as mp
 
-import numpy as np
-from tqdm import tqdm
+import pandas as pd
 
 from SystemControl import DATA_DIR
-from SystemControl.utilities import find_files_by_type
+from SystemControl.utilities import select_skip_generator
 
 
-class SubjectEntry(dict):
-
-    def __init__(self, path: str, source_name: str, subject: str, trial_type: str, trial_name: str,
-                 samples: list = None, events: list = None):
-        super().__init__(
-            path=path, source_name=source_name, subject=subject, trial_type=trial_type, trial_name=trial_name,
-            samples=samples, events=events
-        )
-        return
-
-    def __str__(self):
-        return f'{self["source_name"]}:{self["subject"]}:{self["trial_type"]}:{self["trial_name"]}'
-
-    def __eq__(self, other):
-        if not isinstance(other, SubjectEntry):
-            return False
-
-        sources_equal = self["source_name"] == other["source_name"]
-        subjects_equal = self["subject"] == other["subject"]
-        trial_types_equal = self["trial_type"] == other["trial_type"]
-        trial_names_equal = self["trial_name"] == other["trial_name"]
-        return sources_equal and subjects_equal and trial_types_equal and trial_names_equal
-
-    def is_loaded(self):
-        return self["samples"] and self["events"]
+def build_entry_id(data_dict):
+    id_str = ''
+    sep = ''
+    for data_key, data_val in data_dict.items():
+        id_str += f'{sep}{data_key}:{data_val}'
+        sep = ' | '
+    id_bytes = id_str.encode('utf-8')
+    entry_hash = hashlib.sha3_256(id_bytes).hexdigest()
+    return entry_hash
 
 
-class SampleEntry(dict):
+def save_trial_data(subject_entry, start_time: float = -1, end_time: float = -1, human_readable=True):
+    subject_entry_info = subject_entry["subject_entry"]
 
-    def __init__(self, idx: int, timestamp: float, data: dict):
-        super().__init__(idx=idx, timestamp=timestamp, data=data)
-        return
+    source_name = subject_entry_info["source_name"]
+    subject_name = subject_entry_info["subject"]
+    subject_entry_id = subject_entry_info["entry_id"]
+    # todo get first sample and last sample
+    samples = subject_entry["sample_list"]
 
-    def __str__(self):
-        return f'{self["idx"]}:{self["timestamp"]}:{self["data"]}'
+    subject_entry_fname = os.path.join(DATA_DIR, source_name, subject_name, f'{subject_entry_id}.json')
+    subject_save_dir, _ = os.path.split(subject_entry_fname)
+    if not os.path.isdir(subject_save_dir):
+        os.makedirs(subject_save_dir)
 
-    def __repr__(self):
-        return self.__str__()
-
-
-class EventEntry(dict):
-
-    def __init__(self, idx: int, timestamp: float, event_type: str):
-        super().__init__(idx=idx, timestamp=timestamp, event_type=event_type)
-        return
-
-    def __str__(self):
-        return f'{self["idx"]}:{self["timestamp"]}:{self["event_type"]}'
-
-    def __repr__(self):
-        return self.__str__()
+    with open(subject_entry_fname, 'w+') as subject_entry_file:
+        if human_readable:
+            json.dump(samples, subject_entry_file, indent=2)
+        else:
+            json.dump(samples, subject_entry_file)
+    return
 
 
 class DataSource:
@@ -74,41 +52,51 @@ class DataSource:
     def dataset_directory(self):
         return os.path.join(DATA_DIR, self.name)
 
-    def __init__(self, log_level: str = 'WARNING'):
+    @property
+    def trial_info_file(self):
+        if self.save_method == 'csv':
+            path = os.path.join(self.dataset_directory, f'trial_info.csv')
+        elif self.save_method == 'h5':
+            path = os.path.join(self.dataset_directory, f'trial_info.h5')
+        else:
+            print(f'Unable to save data: unrecognized file format: {self.save_method}')
+            path = ''
+        return path
+
+    @property
+    def trial_data_file(self):
+        if self.save_method == 'csv':
+            path = os.path.join(self.dataset_directory, f'trial_data.csv')
+        elif self.save_method == 'h5':
+            path = os.path.join(self.dataset_directory, f'trial_data.h5')
+        else:
+            print(f'Unable to save data: unrecognized file format: {self.save_method}')
+            path = ''
+        return path
+
+    def __init__(self, log_level: str = 'WARNING', save_method: str = 'h5'):
         self._log_level = log_level
+        self.save_method = save_method
 
-        self.name = None
-        self.sample_freq = None
-        self.subject_names = None
-        self.trial_types = None
-        self.event_names = None
-        self.ascended_being = None
-        self.subject_entries = None
-        self.selected_trial_type = None
+        self.name = ''
+        self.sample_freq = -1
+        self.subject_names = []
+        self.trial_types = []
+        self.event_names = []
+        self.ascended_being = ''
+        self.selected_trial_type = ''
 
-        self.stream_open = False
-        self.subject_entries = []
+        self.trial_info_df = None
+        self.trial_data_df = None
+
         self.coi = ['C3', 'Cz', 'C4']
         return
 
     def __iter__(self):
-        subject_entry_list = self.get_subject_entries()
-        for subject_entry in subject_entry_list:
-            sample_list = subject_entry["samples"]
-            event_list = subject_entry["events"]
-
-            next_event_idx = 1
-            if event_list:
-                curr_event = event_list[0]
-            else:
-                curr_event = EventEntry(idx=0, timestamp=0, event_type='None')
-
-            for sample in sample_list:
-                while next_event_idx < len(event_list) \
-                        and sample["timestamp"] >= event_list[next_event_idx]["timestamp"]:
-                    next_event_idx += 1
-                    curr_event = event_list[next_event_idx - 1]
-                yield sample, curr_event
+        trial_samples_list = self.get_trial_samples()
+        for trial_samples in trial_samples_list:
+            for index, sample in trial_samples.iterrows():
+                yield sample
         return
 
     def __str__(self):
@@ -118,54 +106,32 @@ class DataSource:
         return self.__str__()
 
     def downsample_generator(self, skip_amount: int = 2):
-        subject_entry_list = self.get_subject_entries()
-        for subject_entry in subject_entry_list:
-
-            sample_list = subject_entry["samples"]
-            downsampled_list = sample_list[::skip_amount]
-            event_list = subject_entry["events"]
-
-            next_event_idx = 1
-            if event_list:
-                curr_event = event_list[0]
-            else:
-                curr_event = EventEntry(idx=0, timestamp=0, event_type='None')
-
-            for sample in downsampled_list:
-                while next_event_idx < len(event_list) \
-                        and sample["timestamp"] >= event_list[next_event_idx]["timestamp"]:
-                    next_event_idx += 1
-                    curr_event = event_list[next_event_idx - 1]
-                yield sample, curr_event
-        return
+        base_iter = self.__iter__()
+        downsampled = select_skip_generator(base_iter, select=1, skip=skip_amount - 1)
+        for sample in downsampled:
+            yield sample
 
     def window_generator(self, window_length: float, spacing: float):
-        num_per_window = int(self.sample_freq * window_length)
-        num_between_windows = int(self.sample_freq * spacing)
-
-        subject_entry_list = self.get_subject_entries()
         window_start = 0
-        for subject_entry in subject_entry_list:
-            sample_list = subject_entry["samples"]
-            event_list = subject_entry["events"]
+        window_end = window_length
 
-            while window_start + num_per_window < len(sample_list):
-                window_samples = sample_list[window_start:window_start + num_per_window]
-                last_sample_idx = window_samples[-1]["idx"]
-                window_event = event_list[0]
-                for event in event_list:
-                    if event["idx"] > last_sample_idx:
-                        break
-                    window_event = event
+        trial_samples_list = self.get_trial_samples()
+        for trial_samples in trial_samples_list:
+            last_time = trial_samples['timestamp'].max()
 
-                window_start += num_between_windows
-
-                yield window_samples, window_event
+            while window_end < last_time:
+                next_window = trial_samples.loc[
+                    (trial_samples['timestamp'] >= window_start) &
+                    (trial_samples['timestamp'] <= window_end)
+                    ]
+                window_start += spacing
+                window_end += spacing
+                yield next_window
         return
 
     def get_num_samples(self):
         total_count = 0
-        subject_entry_list = self.get_subject_entries()
+        subject_entry_list = self.get_trial_samples()
         for subject_entry in subject_entry_list:
             sample_list = subject_entry["samples"]
             last_sample = sample_list[-1]
@@ -173,21 +139,33 @@ class DataSource:
             total_count += last_sample_idx + 1
         return total_count
 
+    def get_trial_samples(self) -> list:
+        current_trials = self.trial_info_df.loc[
+            (self.trial_info_df['subject'] == self.ascended_being) &
+            (self.trial_info_df['trial_type'] == self.selected_trial_type)
+            ]
+        trial_samples = []
+        for index, row in current_trials.iterrows():
+            row_id = row['id']
+            id_samples = self.trial_data_df.loc[self.trial_data_df['id'] == row_id]
+            trial_samples.append(id_samples)
+        return trial_samples
+
     def load_data(self):
+        print('Loading dataset')
         time_start = time.time()
-        json_file_list = find_files_by_type(file_type='json', root_dir=self.dataset_directory)
-        for each_fname in tqdm(json_file_list, desc=f'Storing json file names', file=sys.stdout):
-            file_parts = each_fname.split(os.sep)
-            entry_trial, _ = os.path.splitext(file_parts[-1])
-            trial_type, trial_name = entry_trial.split('-')
-            entry_subject = file_parts[-2]
-            subject_entry = SubjectEntry(
-                path=each_fname, source_name=self.name, subject=entry_subject,
-                trial_type=trial_type, trial_name=trial_name
-            )
-            self.subject_entries.append(subject_entry)
+        if self.save_method == 'csv':
+            self.trial_info_df = pd.read_csv(self.trial_info_file)
+            self.trial_data_df = pd.read_csv(self.trial_data_file)
+        elif self.save_method == 'h5':
+            self.trial_info_df = pd.read_hdf(self.trial_info_file, key='physio_trial_info')
+            self.trial_data_df = pd.read_hdf(self.trial_data_file, key='physio_trial_data')
+
+
+        else:
+            print(f'Unable to save data: unrecognized file format: {self.save_method}')
         time_end = time.time()
-        print(f'Time to store file names: {time_end - time_start:.4f} seconds')
+        print(f'Time to load info and data: {time_end - time_start:.4f} seconds')
         return
 
     def set_subject(self, subject: str):
@@ -195,7 +173,6 @@ class DataSource:
             raise ValueError(f'Designated subject is not a valid subject: {subject}')
 
         self.ascended_being = subject
-        self.preload_user()
         return
 
     def set_trial_type(self, trial_type: str):
@@ -203,96 +180,21 @@ class DataSource:
             raise ValueError(f'Designated trial is not a valid trial type: {trial_type}')
 
         self.selected_trial_type = trial_type
-        self.preload_user()
         return
 
-    def stream_subject_entries(self):
-        trials = self.get_subject_entries()
-        self.stream_open = True
-        while self.stream_open:
-            for each_trial in trials:
-                trial_samples = each_trial["samples"]
-                for each_sample in trial_samples:
-                    yield each_sample, each_trial["trial"]
-        return
-
-    def get_subject_entries(self) -> list:
-        filtered_subject_entries = list(filter(
-            lambda entry: entry["subject"] == self.ascended_being, self.subject_entries
-        ))
-        filtered_trial_entries = list(filter(
-            lambda entry: entry["trial_type"] in self.selected_trial_type, list(filtered_subject_entries)
-        ))
-        return filtered_trial_entries
-
-    def preload_user(self, subject: str = None):
-        if not subject:
-            subject = self.ascended_being
-
-        if subject not in self.subject_names:
-            raise ValueError(f'Designated subject is not a valid subject: {subject}')
-
-        subject_entry_list = self.get_subject_entries()
-        for subject_entry in subject_entry_list:
-            if not subject_entry.is_loaded():
-                with open(subject_entry["path"], 'r+') as subject_file:
-                    entry_data = json.load(subject_file)
-                    sample_list = [SampleEntry(**each_sample) for each_sample in entry_data["samples"]]
-                    event_list = [EventEntry(**each_event) for each_event in entry_data["events"]]
-
-                    subject_entry["samples"] = sample_list
-                    subject_entry["events"] = event_list
-        return
-
-    def save_data(self, subject_entries: list = None, human_readable=True, use_mp: bool = True):
-        if not subject_entries:
-            subject_entries = self.subject_entries
-
-        num_cpus = mp.cpu_count()
-        if use_mp:
-            print(f'Using max {num_cpus} processes to save subject {len(subject_entries)} entries')
-            mp_pool = mp.Pool(processes=num_cpus)
-            save_pbar = tqdm(total=len(subject_entries), desc=f'Saving SubjectEntry files', file=sys.stdout)
-
-            def process_success(future):
-                save_pbar.update(1)
-                return
-
-            for subject_entry in subject_entries:
-                mp_pool.apply_async(
-                    self.save_entry, (subject_entry, human_readable),
-                    callback=process_success,
-                )
-            mp_pool.close()
-            mp_pool.join()
-            save_pbar.close()
+    def save_data(self, start_time: float = 0.0, end_time: float = -1):
+        print(f'Saving {len(self.trial_info_df)} trials using method: {self.save_method}')
+        time_start = time.time()
+        if self.save_method == 'csv':
+            self.trial_info_df.to_csv(self.trial_info_file, index=False)
+            self.trial_data_df.to_csv(self.trial_data_file, index=False)
+        elif self.save_method == 'h5':
+            self.trial_info_df.to_hdf(self.trial_info_file, key='physio_trial_info')
+            self.trial_data_df.to_hdf(self.trial_data_file, key='physio_trial_data')
         else:
-            print(f'Using a single process to save subject {len(subject_entries)} entries')
-            save_pbar = tqdm(total=len(subject_entries), desc=f'Saving SubjectEntry files', file=sys.stdout)
-            for subject_entry in subject_entries:
-                self.save_entry(subject_entry, human_readable)
-                save_pbar.update(1)
-            save_pbar.close()
-        return
-
-    def save_entry(self, subject_entry, human_readable=False):
-        entry_trial_type = subject_entry["trial_type"]
-        entry_trial_name = subject_entry["trial_name"]
-        subject_name = subject_entry["subject"]
-
-        subject_save_dir = os.path.join(DATA_DIR, self.name, subject_name)
-        if not os.path.isdir(subject_save_dir):
-            os.makedirs(subject_save_dir)
-
-        subject_entry_fname = os.path.join(
-            subject_save_dir,
-            f'{entry_trial_type}-{entry_trial_name}.json'
-        )
-        with open(subject_entry_fname, 'w+') as subject_entry_file:
-            if human_readable:
-                json.dump(subject_entry, subject_entry_file, indent=2)
-            else:
-                json.dump(subject_entry, subject_entry_file)
+            print(f'Unable to save data: unrecognized file format: {self.save_method}')
+        time_end = time.time()
+        print(f'Time to save info and data: {time_end - time_start:.4f} seconds')
         return
 
 

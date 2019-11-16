@@ -73,6 +73,12 @@ def filter_list_of_dicts(list_of_dicts, filter_dict):
     return filter_list
 
 
+def select_skip_generator(iterable, select, skip):
+    for idx, item in enumerate(iterable):
+        if idx % (select + skip) < select:
+            yield item
+
+
 def find_files_by_name(filename: str, root_dir: str = None) -> list:
     """
     Locates all files of the specified name under the supplied
@@ -236,12 +242,12 @@ def download_large_file(url_path, save_directory, c_size: int = 512,
 
         local_fname = os.path.join(save_directory, '{}{}'.format(remote_fname_name, file_type))
         if os.path.isfile(local_fname):
-            print('File already located in default location:\n{}'.format(local_fname))
+            print('File to download already located in default location:\n\t{}'.format(local_fname))
             if not force_download:
-                print('Not re-downloading file')
+                print('\tNot re-downloading file')
                 return local_fname
             else:
-                print('Removing previously downloaded file')
+                print('\tRemoving previously downloaded file')
                 os.remove(local_fname)
 
         print('Starting file download...')
@@ -298,15 +304,70 @@ def unzip_file(zip_filename, save_directory, force_unzip=False, remove_zip=False
     unzip_dir = os.path.join(save_directory, zip_name[0])
 
     if os.path.exists(unzip_dir):
-        print('Located unzipped directory')
+        print(f'Located unzipped directory:\n\t{unzip_dir}')
         if not force_unzip:
-            print('Not re-unzipping')
+            print('\tNot re-unzipping')
             return unzip_dir
-        print('Removing unzipped directory')
+        print('\tRemoving unzipped directory')
         shutil.rmtree(unzip_dir)
     with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
         zip_ref.extractall(unzip_dir)
+    print(f'Unzip complete:\n\t{unzip_dir}')
     if remove_zip:
         os.remove(zip_filename)
-        print('Removing zip file')
+        print('\tRemoving zip file')
     return unzip_dir
+
+
+class Observer:
+
+    def __init__(self, sub_list: list):
+        self.subscriptions = []
+        for each_sub in sub_list:
+            if isinstance(each_sub, Observable):
+                self.subscriptions.append(each_sub)
+                each_sub.subscribe(self)
+        return
+
+    def update(self, source, update_message):
+        raise NotImplementedError(f'Not implemented: {self}')
+
+
+class Observable:
+
+    def __init__(self):
+        self.subscriber_list = []
+        self._changed = False
+        self.change_message = None
+        return
+
+    def notify_all(self):
+        if self._changed:
+            for subscriber in self.subscriber_list:
+                subscriber.update(self, self.change_message)
+        self._changed = False
+        return
+
+    def set_changed_message(self, message):
+        self.change_message = message
+        self.set_changed()
+        return
+
+    def set_changed(self):
+        self._changed = True
+        self.notify_all()
+        return
+
+    def subscribe(self, subscriber):
+        if isinstance(subscriber, Observer):
+            self.subscriber_list.append(subscriber)
+        else:
+            print(f'Subscriber is not a valid Observer: {subscriber}')
+        return
+
+    def unsubscribe(self, subscriber):
+        if self.subscriber_list.__contains__(subscriber):
+            self.subscriber_list.remove(subscriber)
+        else:
+            print(f'Subscriber is not currently subscribed to this Observable: {subscriber}')
+        return

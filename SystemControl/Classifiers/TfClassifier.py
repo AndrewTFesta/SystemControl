@@ -1,6 +1,13 @@
 """
 @title
 @description
+
+    have to set environment variable before importing tensorflow
+
+    0 = all messages are logged (default behavior)
+    1 = INFO messages are not printed
+    2 = INFO and WARNING messages are not printed
+    3 = INFO, WARNING, and ERROR messages are not printed
 """
 import argparse
 import collections
@@ -8,6 +15,8 @@ import json
 import os
 import random
 import time
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import cv2 as cv2
 import matplotlib.pyplot as plt
@@ -17,38 +26,34 @@ from matplotlib import style
 from matplotlib.ticker import MaxNLocator
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
-
-"""
-have to set environment variable before importing tensorflow
-
-0 = all messages are logged (default behavior)
-1 = INFO messages are not printed
-2 = INFO and WARNING messages are not printed
-3 = INFO, WARNING, and ERROR messages are not printed
-"""
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.DataTransformer import Interpolation
 from SystemControl.utilities import find_files_by_type, filter_list_of_dicts
+
 
 TrainParameters = collections.namedtuple(
     'TrainParameter',
     [
-        'source_list', 'chosen_beings', 'target_column', 'interpolation_list',
-        'start_padding', 'end_padding', 'img_dims', 'learning_rate', 'batch_size', 'num_epochs'
+        'data_source', 'chosen_being', 'target_column', 'interpolation_list',
+        'window_lengths', 'img_height', 'img_width',  'learning_rate', 'batch_size', 'num_epochs'
     ]
 )
 
 
 class TfClassifier:
 
-    def __init__(self, dataset_directory, num_subjects: int, target: str,
-                 interpolation_types: list, start_padding: list, end_padding: list, model_id: str,
-                 *, verbosity: int = 1, learning_rate: float = 1e-4, num_epochs: int = 20, batch_size: int = 1,
-                 resize_height: int = 224, resize_width: int = 224, rand_seed: int = 42):
+    def __init__(self, train_params, model_id: str,
+                 *, verbosity: int = 1, rand_seed: int = 42, pretrained_name: str = None):
+
+        self._train_params = train_params
+        heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{self._train_params.data_source}')
+        for duration in self._train_params.window_lengths:
+            duration_data_dir = os.path.join(heatmap_dir, f'window_length_{duration}')
+            if not os.path.isdir(duration_data_dir):
+                raise ValueError(f'Dataset directory not found: {duration_data_dir}')
+
         time_stamp = time.strftime('%y_%m_%d_%H_%M_%S', time.gmtime())
         self.model_name = f'model_{model_id}'
         self.model_dir = os.path.join(DATA_DIR, 'models', 'tf', f'{self.type_name}', f'{self.model_name}_{time_stamp}')
@@ -57,78 +62,27 @@ class TfClassifier:
 
         self._rand_seed = rand_seed
         self._verbosity = verbosity
+        self._heatmap_directory = heatmap_dir
 
-        self._data_directory = dataset_directory
         raw_data = self.__load_image_files()
-
-        self.class_names: list = list(np.unique([each_entry[target] for each_entry in raw_data]))
-        source_list = list(np.unique([each_entry['source'] for each_entry in raw_data]))
-        potential_subjects = list(np.unique([each_entry['subject'] for each_entry in raw_data]))
-
-        rand_generator = random.Random(self._rand_seed)
-        chosen_beings = sorted(rand_generator.sample(potential_subjects, k=num_subjects))
-
-        self._train_params = TrainParameters(
-            source_list=source_list, chosen_beings=chosen_beings, target_column=target,
-            interpolation_list=interpolation_types, start_padding=start_padding, end_padding=end_padding,
-            img_dims=[resize_width, resize_height], learning_rate=learning_rate,
-            batch_size=batch_size, num_epochs=num_epochs
-        )
-        self.save_train_params()
-
-        filtered_dataframe = self.__filter_data_entries(raw_data)
-        self._data_splits = self.__split_data(filtered_dataframe)
-
-        self.model = self.__build_cnn_v0()
+        self.class_names = list(np.unique([each_entry[self._train_params.target_column] for each_entry in raw_data]))
+        filtered_x, filtered_y = self.__filter_data_entries(raw_data)
+        self._data_splits = self.__split_data(filtered_x, filtered_y)
 
         self._train_history = None
         self._eval_metrics = None
+        self.model = self.__build_model(pretrained_name)
+        self.save_train_params()
         return
 
     @property
     def type_name(self):
         return 'cnn'
 
-    def __load_image_files(self):
-        img_files = find_files_by_type('png', self._data_directory)
-        data_list = []
-        for each_file in tqdm(img_files, desc='Reading dataset directory hierarchy'):
-            file_parts = each_file.split(os.path.sep)
-            file_id, file_ext = os.path.splitext(file_parts[-1])
-            event_type = file_parts[-2]
-            file_subject = file_parts[-3]
-            file_interp = file_parts[-4]
-            file_epad = file_parts[-5]
-            file_spad = file_parts[-6]
-            file_source = file_parts[-7]
-            data_entry = {
-                'event': event_type, 'subject': file_subject, 'interpolation': file_interp, 'start_padding': file_spad,
-                'end_padding': file_epad, 'source': file_source, 'id': file_id, 'path': each_file
-            }
-            data_list.append(data_entry)
-        return data_list
-
-    def __filter_data_entries(self, data_to_filter):
-        filter_criteria = {
-            'subject': self._train_params.chosen_beings,
-            'interpolation': self._train_params.interpolation_list,
-            'source': self._train_params.source_list,
-            'end_padding': self._train_params.end_padding
-        }
-        filtered_dataset = filter_list_of_dicts(data_to_filter, filter_criteria)
-        rand_generator = random.Random(self._rand_seed)
-        rand_generator.shuffle(filtered_dataset)
-        filtered_df = pd.DataFrame(filtered_dataset)
-        target_str_to_idx = {class_name: class_idx for class_idx, class_name in enumerate(self.class_names)}
-        filtered_df.replace(target_str_to_idx, inplace=True)
-        return filtered_df
-
-    def __build_cnn_v0(self):
-        input_shape = (self._train_params.img_dims[1], self._train_params.img_dims[0], 3)
+    def __build_model(self, model_name):
+        input_shape = (self._train_params.img_height, self._train_params.img_width, 3)
         num_classes = len(self.class_names)
-
         model = keras.Sequential()
-
         # base architecture
         model.add(keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=input_shape))
         model.add(keras.layers.MaxPooling2D((2, 2)))
@@ -147,6 +101,52 @@ class TfClassifier:
             metrics=self.default_model_metrics()
         )
         return model
+
+    def __filter_data_entries(self, data_to_filter):
+        filter_criteria = {
+            'subject': [self._train_params.chosen_being],
+            'interpolation': self._train_params.interpolation_list,
+            'data_source': [self._train_params.data_source],
+            'window_length': self._train_params.window_lengths
+        }
+        filtered_dataset = filter_list_of_dicts(data_to_filter, filter_criteria)
+        rand_generator = random.Random(self._rand_seed)
+        rand_generator.shuffle(filtered_dataset)
+        filtered_df = pd.DataFrame(filtered_dataset)
+
+        filtered_x = filtered_df["path"]
+        filtered_y = filtered_df[self._train_params.target_column]
+
+        target_str_to_idx = {class_name: class_idx for class_idx, class_name in enumerate(self.class_names)}
+        filtered_y.replace(target_str_to_idx, inplace=True)
+        return filtered_x, filtered_y
+
+    def __load_image_files(self):
+        img_files = find_files_by_type('png', self._heatmap_directory)
+        data_list = []
+        for each_file in tqdm(img_files, desc='Reading dataset directory hierarchy'):
+            file_parts = each_file.split(os.path.sep)
+            param_dict = {
+                '_'.join(part.split('_')[:-1]): part.split('_')[-1]
+                for part in file_parts
+                if len(part.split('_')) > 1
+            }
+            param_dict["path"] = each_file
+            data_list.append(param_dict)
+        return data_list
+
+    def __load_images(self, img_paths):
+        img_list = []
+        for each_path in tqdm(img_paths, desc=f'Loading images'):
+            img = cv2.imread(each_path)
+            img_width = self._train_params.img_width if self._train_params.img_width > 0 else img.shape(1)
+            img_height = self._train_params.img_height if self._train_params.img_height > 0 else img.shape(0)
+            img_dims = (img_width, img_height)
+            img = cv2.resize(img, img_dims)
+            img_list.append(img)
+        np_images = np.asarray(img_list)
+        np_images = np_images / 255.0
+        return np_images
 
     def default_model_callbacks(self):
         fit_callbacks = [
@@ -168,7 +168,6 @@ class TfClassifier:
     def default_model_metrics():
         metrics_list = [
             keras.metrics.SparseCategoricalAccuracy(),
-            keras.metrics.CategoricalHinge(),
         ]
         return metrics_list
 
@@ -182,39 +181,30 @@ class TfClassifier:
         loss_func = keras.losses.SparseCategoricalCrossentropy()
         return loss_func
 
-    def __split_data(self, data_to_split, test_size=0.25, val_size=0.15):
-        train_val_df, test_filtered_df = train_test_split(
-            data_to_split, test_size=test_size, random_state=self._rand_seed
+    def __split_data(self, data, targets, test_size=0.25, val_size=0.15):
+        train_val_x, test_x, train_val_y, test_y = train_test_split(
+            data, targets, test_size=test_size, random_state=self._rand_seed
         )
-        train_filtered_df, val_filtered_df = train_test_split(
-            train_val_df, test_size=val_size, random_state=self._rand_seed
+
+        train_x, val_x, train_y, val_y = train_test_split(
+            train_val_x, train_val_y, test_size=val_size, random_state=self._rand_seed
         )
 
         data_dict = {
             'train': {
-                'images': self.__load_images(train_filtered_df['path']),
-                'labels': train_filtered_df[self._train_params.target_column].to_numpy()
+                'images': self.__load_images(train_x),
+                'labels': train_y.to_numpy()
             },
             'validation': {
-                'images': self.__load_images(val_filtered_df['path']),
-                'labels': val_filtered_df[self._train_params.target_column].to_numpy()
+                'images': self.__load_images(val_x),
+                'labels': val_y.to_numpy()
             },
             'test': {
-                'images': self.__load_images(test_filtered_df['path']),
-                'labels': test_filtered_df[self._train_params.target_column].to_numpy()
+                'images': self.__load_images(test_x),
+                'labels': test_y.to_numpy()
             },
         }
         return data_dict
-
-    def __load_images(self, img_paths):
-        img_list = []
-        for each_path in tqdm(img_paths, desc=f'Loading images'):
-            img = cv2.imread(each_path)
-            img = cv2.resize(img, (self._train_params.img_dims[0], self._train_params.img_dims[1]))
-            img_list.append(img)
-        np_images = np.asarray(img_list)
-        np_images = np_images / 255.0
-        return np_images
 
     def train(self):
         self._train_history = self.model.fit(
@@ -250,11 +240,10 @@ class TfClassifier:
         num_test_labels = len(self._data_splits['test']['labels'])
 
         print('=====================================================================')
-        print(f'Data source: {", ".join(self._train_params.source_list)}')
+        print(f'Data source: {self._train_params.data_source}')
+        print(f'Chosen being: {len(self._train_params.chosen_being)}')
         print(f'Number of interpolation types: {len(self._train_params.interpolation_list)}')
         print(f'\t{", ".join(self._train_params.interpolation_list)}')
-        print(f'Number of chosen beings: {len(self._train_params.chosen_beings)}')
-        print(f'\t{", ".join(self._train_params.chosen_beings)}')
         print(f'Number of classes: {len(self.class_names)}')
         print(f'\t{", ".join(self.class_names)}')
         print(f'Number of entries in dataset: {total_count}')
@@ -478,36 +467,35 @@ def main(margs):
     display_metrics = True
     display_model = False
     #############################################
-
-    heatmap_dir = margs.get('data_directory', os.path.join(DATA_DIR, 'heatmaps', 'Physio'))
+    ds_name = margs.get('data_source', 'Physio')
     target_column = margs.get('target', 'event')
-    num_subjects = margs.get('num_subjects', 20)
+    subject_name = margs.get('subject_name', 'S001')
+    duration_list = margs.get('duration', ['0.20'])
+    interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
+    #############################################
     num_epochs = margs.get('num_epochs', 20)
     batch_size = margs.get('batch_size', 16)
     learning_rate = margs.get('learning_rate', 1e-4)
+    pretrained_name = margs.get('pretrained_name', None)
     verbosity = margs.get('verbosity', 1)
     model_id = margs.get('model_id', '0')
-    duration_list = ['epad_10', 'epad_20', 'epad_30', 'epad_40', 'epad_50']  # todo make argument
+    img_width = margs.get('img_width', 224)
+    img_height = margs.get('img_height', 224)
 
-    #############################################
     rand_seed = 42
-    padding_list = ['spad_10']
-    interpolation_list = [
-        Interpolation.LINEAR.name,
-        Interpolation.QUADRATIC.name,
-        Interpolation.CUBIC.name
-    ]
     #############################################
-    if not os.path.isdir(heatmap_dir):
-        print(f'Dataset directory not found: {heatmap_dir}')
-        return
-    #############################################
+    train_params = TrainParameters(
+        data_source=ds_name, chosen_being=subject_name, target_column=target_column,
+        interpolation_list=interpolation_list, window_lengths=duration_list,
+        img_width=img_width, img_height= img_height, learning_rate=learning_rate,
+        batch_size=batch_size, num_epochs=num_epochs
+    )
     tf_classifier = TfClassifier(
-        heatmap_dir,
-        num_subjects=num_subjects, interpolation_types=interpolation_list,
-        start_padding=padding_list, end_padding=duration_list, model_id=model_id,
-        target=target_column, verbosity=verbosity, rand_seed=rand_seed,
-        num_epochs=num_epochs, batch_size=batch_size, learning_rate=learning_rate
+        train_params,
+        model_id=model_id,
+        verbosity=verbosity,
+        rand_seed=rand_seed,
+        pretrained_name=pretrained_name
     )
 
     tf_classifier.train()
@@ -527,14 +515,23 @@ def main(margs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train and evaluate a Tensorflow classifier.')
-    parser.add_argument('--data_directory', type=str, default=os.path.join(DATA_DIR, 'heatmaps', 'recorded'),
-                        help='base directory or directory structure containing the image dataset')
+    parser.add_argument('--data_source', type=str, default=os.path.join('Physio'), choices=['Physio', 'recorded'],
+                        help='name of the data source to use when training the model')
     parser.add_argument('--target', type=str, default='event',
                         help='target variable to be used as the class label')
-    parser.add_argument('--num_subjects', type=int, default=1,
-                        help='number of subjects to use from the underlying datasource')
     parser.add_argument('--subject_name', type=str, default='Random',
                         help='Name of subject to use when training this classifier')
+
+    parser.add_argument('--duration', type=str, nargs='+', default=['0.20'], choices=['0.20', '0.40', '0.60'],
+                        help='list of window sizes to use when training the model')
+    parser.add_argument('--interpolation', type=str, nargs='+', default=['LINEAR', 'QUADRATIC', 'CUBIC'],
+                        choices=['LINEAR', 'QUADRATIC', 'CUBIC'],
+                        help='list of window sizes to use when training the model')
+    parser.add_argument('--img_width', type=int, default=224,
+                        help='width to resize each image to before feeding to the model')
+    parser.add_argument('--img_height', type=int, default=224,
+                        help='height to resize each image to before feeding to the model')
+
     parser.add_argument('--num_epochs', type=int, default=20,
                         help='maximum number of epochs over which to train the model')
     parser.add_argument('--batch_size', type=int, default=16,
@@ -545,6 +542,10 @@ if __name__ == '__main__':
                         help='verbosity level to use when reporting model updates: 0 -> off, 1-> on')
     parser.add_argument('--model_id', type=str, default='0',
                         help='string to use to label the model for future reference')
+
+    # parser.add_argument('--pretrained_name', type=str, default=None,
+    #                     help='name of a pretrained model used to set the base architecture and weights '
+    #                          '--do not use--')
 
     args = parser.parse_args()
     main(vars(args))

@@ -30,11 +30,14 @@ import urllib.parse
 
 import mne
 import numpy as np
+import pandas as pd
 from mne.io import read_raw_edf
 from tqdm import tqdm
 
-from SystemControl.DataSource.DataSource import SubjectEntry, SampleEntry, EventEntry, DataSource
+from SystemControl.DataSource.DataSource import DataSource, build_entry_id
 from SystemControl.utilities import download_large_file, unzip_file, find_files_by_type, idx_to_time
+
+DEBUG = False
 
 
 def int_to_subject_str(subject_int):
@@ -47,13 +50,19 @@ def int_to_run_str(run_int):
 
 class PhysioDataSource(DataSource):
 
-    def __init__(self, subject: str = None, trial_type: str = None, log_level: str = 'CRITICAL'):
+    def __init__(self, subject: str = None, trial_type: str = None, log_level: str = 'CRITICAL',
+                 save_method: str = 'h5'):
         mne.set_log_level(log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
-        super().__init__(log_level)
+        DataSource.__init__(self, log_level=log_level, save_method=save_method)
 
         self.name = 'Physio'
         self.sample_freq = 160
-        self.subject_names = [int_to_subject_str(each_subject) for each_subject in list(range(1, 110))]
+
+        num_subjects = 109
+        if DEBUG:
+            num_subjects = 2
+        self.subject_names = [int_to_subject_str(each_subject) for each_subject in list(range(1, num_subjects + 1))]
+
         self.__trial_mappings = {
             'baseline_open': [int_to_run_str(each_run) for each_run in [1]],
             'baseline_closed': [int_to_run_str(each_run) for each_run in [2]],
@@ -69,10 +78,10 @@ class PhysioDataSource(DataSource):
 
         self._validated = False
         if not self.__validate_dataset():
-            subject_entries = self.__download_dataset(use_mp=True, debug=False)
-            self.save_data(subject_entries, human_readable=True, use_mp=True)
-
-        self.load_data()
+            self.__download_dataset(use_mp=True, debug=DEBUG)
+            self.save_data()
+        else:
+            self.load_data()
         self.set_subject(self.ascended_being)
         return
 
@@ -115,30 +124,34 @@ class PhysioDataSource(DataSource):
         time_start = time.time()
         physio_files = find_files_by_type(file_type='edf', root_dir=self.dataset_directory)
         time_end = time.time()
-        print(f'Time to find json files: {time_end - time_start:.4f} seconds')
-        print(f'Found {len(physio_files)} JSON files')
+        print(f'Time to find edf files: {time_end - time_start:.4f} seconds')
+        print(f'Found {len(physio_files)} EDF files')
 
         # limiter for debug purposes
         if debug:
-            physio_files = physio_files[:32]
+            physio_files = physio_files[:8]
 
-        subject_entry_list = []
+        trial_info_list = []
+        trial_data_list = []
         num_cpus = mp.cpu_count()
         if use_mp:
             print(f'Using max {num_cpus} processes to reformat {len(physio_files)} files')
             mp_pool = mp.Pool(processes=num_cpus)
-            pbar = tqdm(total=len(physio_files), desc=f'Reformatting as SubjectEntry objects', file=sys.stdout)
-            subject_list_lock = threading.Lock()
+            pbar = tqdm(total=len(physio_files), desc=f'Building trial dataframes', file=sys.stdout)
+            trial_info_list_lock = threading.Lock()
+            trial_data_list_lock = threading.Lock()
 
             def process_success(future_result):
-                with subject_list_lock:
-                    pbar.update(1)
-                    subject_entry_list.append(future_result)
+                pbar.update(1)
+                with trial_info_list_lock:
+                    trial_info_list.append(future_result[0])
+                with trial_data_list_lock:
+                    trial_data_list.extend(future_result[1])
                 return
 
             for each_file in physio_files:
                 mp_pool.apply_async(
-                    self.reformat_as_subject_entry, (each_file,),
+                    self.reformat_as_dataframes, (each_file,),
                     callback=process_success,
                 )
             mp_pool.close()
@@ -146,79 +159,75 @@ class PhysioDataSource(DataSource):
             pbar.close()
         else:
             print(f'Using a single process to reformat {len(physio_files)} files')
-            pbar = tqdm(total=len(physio_files), desc=f'Reformatting as SubjectEntry objects', file=sys.stdout)
+            pbar = tqdm(total=len(physio_files), desc=f'Building trial dataframes', file=sys.stdout)
             for each_file in physio_files:
-                subject_entry = self.reformat_as_subject_entry(each_file)
-                subject_entry_list.append(subject_entry)
+                each_trial_info, each_trial_samples = self.reformat_as_dataframes(each_file)
+                trial_info_list.append(each_trial_info)
+                trial_data_list.extend(each_trial_samples)
                 pbar.update(1)
             pbar.close()
-        return subject_entry_list
+        self.trial_info_df = pd.DataFrame(trial_info_list)
+        self.trial_data_df = pd.DataFrame(trial_data_list)
+        return
 
-    def reformat_as_subject_entry(self, file_name):
+    def reformat_as_dataframes(self, file_name):
         mne.set_log_level('CRITICAL')  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
         f_basename, _ = os.path.splitext(os.path.basename(file_name))
-        entry_subject = f_basename[:4]
+        subject_name = f_basename[:4]
         entry_trial = f_basename[4:]
+
+        trial_info = {
+            'source': self.name,
+            'subject': subject_name,
+            'trial_type': self.__trial_type_from_name(entry_trial),
+            'trial_name': entry_trial,
+        }
+        trial_id = build_entry_id(trial_info)
+        trial_info['id'] = trial_id
 
         raw_edf = read_raw_edf(file_name, preload=True, verbose='CRITICAL')
         cleaned_edf = self.__clean_raw_edf(raw_edf)
         data = cleaned_edf.get_data()
         np_data = np.transpose(data)
+        events_timings, event_indices = mne.events_from_annotations(cleaned_edf)
 
         sample_list = []
         for sample_idx, each_sample in enumerate(np_data):
-            sample_data = {
-                self.coi[dp_idx]: dp
-                for dp_idx, dp in enumerate(each_sample.tolist())
+            current_event = self.__last_event_before_idx(events_timings, sample_idx)
+            sample_entry = {
+                'id': trial_id,
+                'idx': sample_idx,
+                'timestamp': idx_to_time(sample_idx, self.sample_freq),
+                'label': current_event
             }
-            sample_entry = SampleEntry(
-                idx=sample_idx,
-                timestamp=idx_to_time(sample_idx, self.sample_freq),
-                data=sample_data
-            )
+            for dp_idx, dp in enumerate(each_sample.tolist()):
+                sample_entry[self.coi[dp_idx]] = dp
             sample_list.append(sample_entry)
 
-        events_timings, event_indices = mne.events_from_annotations(cleaned_edf)
-        event_list = []
-        for each_event in events_timings:
-            event_entry = EventEntry(
-                idx=int(each_event[0]),
-                timestamp=idx_to_time(each_event[0], self.sample_freq),
-                event_type=self.event_names[each_event[2] - 1]
-            )
-            event_list.append(event_entry)
+        return trial_info, sample_list
 
-        subject_entry = SubjectEntry(
-            path=file_name, source_name=self.name, subject=entry_subject,
-            trial_type=self.__trial_type_from_name(entry_trial), trial_name=entry_trial,
-            samples=sample_list, events=event_list
-        )
-        return subject_entry
+    def __last_event_before_idx(self, event_list, sample_idx):
+        trimmed_list = []
+        for event in event_list:
+            if event[0] <= sample_idx:
+                trimmed_list.append(event)
+        return self.event_names[trimmed_list[-1][2] - 1]
 
     def __validate_dataset(self) -> bool:
         if self._validated:
             print('Dataset has already been validated')
             return True
 
-        missing_files = []
-        total_req_files = 0
-        time_start = time.time()
-        for subject in self.subject_names:
-            subject_dir = os.path.join(self.dataset_directory, f'{subject}')
-            found_json_files = find_files_by_type(file_type='json', root_dir=subject_dir)
-            req_json_fnames = [
-                os.path.join(subject_dir, f'{self.__trial_type_from_name(trial_name)}-{trial_name}.json')
-                for trial_name in [int_to_run_str(each_run) for each_run in range(1, 15)]
-            ]
-            set_found_files = set(found_json_files)
-            set_req_files = set(req_json_fnames)
-            missing_files.extend(set_req_files - set_found_files)
-            total_req_files += len(set_req_files)
-        time_end = time.time()
-        print(f'Time to validate dataset: {time_end - time_start:.4f} seconds')
-        print(f'Missing {len(missing_files)} file(s) of {total_req_files} required files')
+        print('Validating dataset')
+        if not os.path.isfile(self.trial_info_file):
+            print(f'Unable to locate meta file describing this datasource: {self.trial_info_file}')
+            return False
 
-        self._validated = len(missing_files) == 0
+        if not os.path.isfile(self.trial_data_file):
+            print(f'Unable to locate data file containing the trial samples: {self.trial_data_file}')
+            return False
+
+        self._validated = True
         return self._validated
 
 
@@ -227,12 +236,25 @@ def main():
 
     :return:
     """
-    physio_ds = PhysioDataSource()
+    display_generators = True
+
+    physio_ds = PhysioDataSource(save_method='h5')
     print(physio_ds.subject_names)
 
-    # for sample, event in physio_ds:
-    #     print(f'{sample["idx"]}:{sample["timestamp"]:<10.4f}::'
-    #           f'{event["idx"]:>7d}:{event["timestamp"]}:{event["event_type"]}')
+    if display_generators:
+        sample_list = list(physio_ds)
+        print(f'Number of samples: {len(sample_list)}')
+
+        for sample in physio_ds:
+            print(f'{sample["idx"]}:{sample["timestamp"]}:'f'{sample["label"]}')
+
+        for sample in physio_ds.downsample_generator(2):
+            print(f'{sample["idx"]}:{sample["timestamp"]}:'f'{sample["label"]}')
+
+        for window in physio_ds.window_generator(0.1, 0.1):
+            window_head = window.iloc[0]
+            window_tail = window.iloc[-1]
+            print(f'{window_head["timestamp"]}:{window_tail["timestamp"]}')
     return
 
 

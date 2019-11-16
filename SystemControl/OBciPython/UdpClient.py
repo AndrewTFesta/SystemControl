@@ -9,23 +9,22 @@ import time
 from json import JSONDecodeError
 from time import sleep
 
-from SystemControl.DataSource import DataSource
-from SystemControl.DataSource.LiveDataSource import LiveDataSource
-from SystemControl.utilities import uv_to_volts
+# import SystemControl.DataSource.LiveDataSource as lds
+from SystemControl.utilities import uv_to_volts, Observable
 
 
-class UdpClient:
+class UdpClient(Observable):
     HOST = '127.0.0.1'
     MAX_BUFFER_SIZE = 8192
 
-    def __init__(self, data_source: DataSource):
+    def __init__(self):
+        super().__init__()
         self.ports = {
             12345: 'timeseries_raw',
             12346: 'timeseries_filtered',
-            12347: 'fft',
+            12347: 'fft_filtered',
         }
         self._clients = {}
-        self.data_source = data_source
         self.listening = False
         return
 
@@ -71,10 +70,12 @@ class UdpClient:
                 if data_type == 'eeg':
                     data_samples = j_data.get('data', None)
                     if data_samples:
-                        self.data_source.add_sample(
-                            self.ports[client_port], time.time(),
-                            [uv_to_volts(sample) for sample in data_samples[:-1]]
-                        )
+                        change_message = {
+                            'time': time.time(),
+                            'port': self.ports[client_port],
+                            'event': [uv_to_volts(sample) for sample in data_samples[:-1]]
+                        }
+                        self.set_changed_message(change_message)
             except JSONDecodeError as jde:
                 print(f'Error while sanitizing sample: {jde}\n{data_str}')
         print(f'Closing listener: {self.ports[client_port]}')
@@ -97,15 +98,19 @@ class UdpClient:
 
 
 def main():
+    from SystemControl.DataSource.LiveDataSource import LiveDataSource
+
     record_length = 5
     current_subject = 'Tara'
     trial_type = 'motor_imagery'
-    data_source = LiveDataSource(subject=current_subject, trial_type=trial_type)
 
-    udp_client = UdpClient(data_source)
+    udp_client = UdpClient()
+    data_source = LiveDataSource(sub_list=[udp_client], subject=current_subject, trial_type=trial_type)
+
     udp_client.run()
     sleep(record_length)
     udp_client.stop()
+
     data_source.save_data(use_mp=False, human_readable=True)
     return
 

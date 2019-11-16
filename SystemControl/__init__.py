@@ -11,7 +11,7 @@ PROJECT_PATH = os.path.split(SOURCE_PACKAGE)[0]
 RESOURCES_DIR = os.path.join(SOURCE_PACKAGE, 'resources')
 IMAGES_DIR = os.path.join(RESOURCES_DIR, 'images')
 
-OBCI_PYTHON_DIR = os.path.join(SOURCE_PACKAGE, 'OBciPython',)
+OBCI_PYTHON_DIR = os.path.join(SOURCE_PACKAGE, 'OBciPython', )
 OPENBCI_HUB_NAME = 'OpenBCIHub.exe'
 HUB_EXE = os.path.join(OBCI_PYTHON_DIR, 'OpenBCI_GUI', 'data', 'OpenBCIHub', OPENBCI_HUB_NAME)
 
@@ -33,3 +33,6 @@ def __init_dirs() -> None:
         if not each_dir_path.exists():
             each_dir_path.mkdir(parents=True, exist_ok=True)
     return
+
+
+__init_dirs()

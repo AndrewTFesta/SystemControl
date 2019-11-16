@@ -8,8 +8,13 @@ import time
 from enum import Enum
 from time import sleep
 
-from SystemControl.DataSource import DataSource
-from SystemControl.DataSource.LiveDataSource import LiveDataSource, MotorAction
+from SystemControl.utilities import Observable
+
+
+class MotorAction(Enum):
+    REST = 0
+    RIGHT = 1
+    LEFT = 2
 
 
 class GeneratorType(Enum):
@@ -17,17 +22,13 @@ class GeneratorType(Enum):
     RANDOM = 1
 
 
-class StimulusGenerator:
+class StimulusGenerator(Observable):
 
-    def __init__(self, data_source: DataSource, generator_type: GeneratorType = GeneratorType.RANDOM,
-                 delay: int = 5, jitter: float = 0.4, seed: int = None):
-        self.data_source = data_source
-        self.seed = seed
+    def __init__(self, generator_type: GeneratorType = GeneratorType.RANDOM, delay: int = 5, jitter: float = 0.4,
+                 verbosity: int = 0):
+        super().__init__()
         delta_jitter = jitter * delay
         self.delay_timer = (delay - delta_jitter, delay + delta_jitter)
-
-        self.start_time = time.time()
-        # self.event_dict = {'start_absolute': self.start_time}
         self.running = False
         self.gen_thread = None
 
@@ -37,9 +38,13 @@ class StimulusGenerator:
         }
         self.generator_type = generator_type
 
-        self.prev_action = MotorAction.REST
-        self.callback_list = []
+        self._last_action = MotorAction.REST
+        self._last_time = time.time()
+        self.verbosity = verbosity
         return
+
+    def __str__(self):
+        return self.__class__.__name__
 
     def __start_generator(self):
         generator_func = self.gen_func_map[self.generator_type]
@@ -51,39 +56,28 @@ class StimulusGenerator:
         return
 
     def random_action(self):
-        rand_action = random.choice([each_action for each_action in MotorAction])
-        act_time = time.time()
-        for callback_function in self.callback_list:
-            callback_function(rand_action, act_time, self.generator_type.name)
-        self.prev_action = rand_action
+        self._last_action = random.choice([each_action for each_action in MotorAction])
+        self._last_time = time.time()
+        change_message = {self._last_time: self._last_action}
+        self.set_changed_message(change_message)
+        if self.verbosity > 0:
+            print(f'{self.__str__()}: {self.change_message}')
         return
 
     def sequential_action(self):
         action_choices = [each_action for each_action in MotorAction]
-        seq_action = action_choices[(self.prev_action.value + 1) % len(list(MotorAction.__members__))]
-
-        act_time = time.time()
-        for callback_function in self.callback_list:
-            callback_function(seq_action, act_time, self.generator_type.name)
-        self.prev_action = seq_action
+        self._last_action = action_choices[(self._last_action.value + 1) % len(list(MotorAction.__members__))]
+        self._last_time = time.time()
+        change_message = {self._last_time: self._last_action}
+        self.set_changed_message(change_message)
+        if self.verbosity > 0:
+            print(f'{self.__str__()}: {self.change_message}')
         return
 
     def run(self):
         self.running = True
         self.gen_thread = threading.Thread(target=self.__start_generator, args=(), daemon=True)
         self.gen_thread.start()
-        return
-
-    def add_callback(self, callback_func):
-        self.callback_list.append(callback_func)
-        return
-
-    def print_callback(self, callback_arg, timestamp, action_type):
-        print(f'time: {timestamp:0.4f}\tdiff: {timestamp - self.start_time:0.4f}\t{action_type}\t{callback_arg.name}')
-        return
-
-    def log_event_callback(self, callback_arg, timestamp, action_type):
-        self.data_source.add_event(event_type=callback_arg.name, timestamp=timestamp)
         return
 
     def stop(self):
@@ -95,24 +89,25 @@ class StimulusGenerator:
 
 
 def main():
-    subject_name = 'Andrew'
+    from SystemControl.DataSource.LiveDataSource import LiveDataSource
+
+    subject_name = 'Tara'
     trial_type = 'motor_imagery'
     generate_delay = 1
     jitter_generator = 0.4
-    rand_seed = 42
-    run_time = 20
+    run_time = 5
+    verbosity = 0
 
-    live_ds = LiveDataSource(subject=subject_name, trial_type=trial_type)
     stimulus_generator = StimulusGenerator(
-        live_ds, delay=generate_delay, jitter=jitter_generator, seed=rand_seed, generator_type=GeneratorType.SEQUENTIAL
+        delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
     )
+    live_ds = LiveDataSource(sub_list=[stimulus_generator], subject=subject_name, trial_type=trial_type)
 
-    stimulus_generator.add_callback(stimulus_generator.log_event_callback)
-    stimulus_generator.add_callback(stimulus_generator.print_callback)
     stimulus_generator.run()
     sleep(run_time)
     stimulus_generator.stop()
-    live_ds.save_data(human_readable=True)
+
+    live_ds.save_data(use_mp=False, human_readable=True)
     return
 
 

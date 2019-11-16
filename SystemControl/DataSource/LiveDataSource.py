@@ -5,45 +5,49 @@
 import os
 import threading
 import time
-from enum import Enum
+from queue import Queue
 
 from SystemControl import DATA_DIR
 from SystemControl.DataSource.DataSource import DataSource, SampleEntry, EventEntry, SubjectEntry
-from SystemControl.utilities import find_files_by_type, idx_to_time
+from SystemControl.StimulusGenerator import MotorAction
+from SystemControl.utilities import find_files_by_type, Observer
 
 
-class MotorAction(Enum):
-    REST = 0
-    RIGHT = 1
-    LEFT = 2
+class LiveDataSource(DataSource, Observer):
 
+    def update(self, source, update_message):
+        if source in self.subscriptions:
+            if source.__class__.__name__ == 'UdpClient':
+                # self.add_sample(
+                #     self.ports[client_port], time.time(),
+                #     [uv_to_volts(sample) for sample in data_samples[:-1]]
+                # )
+                print(f'{source.__class__.__name__}: {update_message}')
+            elif source.__class__.__name__ == 'StimulusGenerator':
+                print(f'{source.__class__.__name__}: {update_message}')
+        return
 
-class LiveDataSource(DataSource):
-
-    def __init__(self, subject: str, trial_type: str, log_level: str = 'CRITICAL'):
-        super().__init__(log_level)
+    def __init__(self, sub_list: list, subject: str, trial_type: str, log_level: str = 'CRITICAL'):
+        DataSource.__init__(self, log_level)
+        Observer.__init__(self, sub_list)
 
         self.name = 'recorded'
         self.sample_freq = 200
-        self.trial_types = ['motor_imagery', 'baseline']
-        self.event_names = list(MotorAction.__members__)
-        self.subject_names = []
-        self.trial_mappings = None
-        self.ascended_being = subject
-        self.subject_save_dir = os.path.join(DATA_DIR, self.name, self.ascended_being)
+        self.trial_types = ['motor_imagery', 'baseline_open', 'baseline_closed']
         self.selected_trial_type = trial_type
+
+        self.ascended_being = subject
+        self.event_names = list(MotorAction.__members__)
+
+        self.subject_save_dir = os.path.join(DATA_DIR, self.name, self.ascended_being)
         self.current_trial = self.__next_trial_id()
 
         self.init_time = time.time()
         self._samples_lock = threading.Lock()
         self._event_lock = threading.Lock()
 
-        initial_sample = {
-            channel: 0
-            for channel in self.coi
-        }
-        self.samples = [SampleEntry(idx=0, timestamp=0, data=initial_sample)]
-        self.events = [EventEntry(idx=0, timestamp=0, event_type=MotorAction.REST.name)]
+        self.samples = []
+        self.events = []
         subject_entry_fname = os.path.join(
             self.dataset_directory, self.ascended_being, f'{self.selected_trial_type}-{self.current_trial}.json'
         )
@@ -51,17 +55,26 @@ class LiveDataSource(DataSource):
             path=subject_entry_fname, source_name=self.name, subject=self.ascended_being,
             trial_type=self.selected_trial_type, trial_name=self.current_trial, samples=self.samples, events=self.events
         )
-        self.subject_entries.append(self.subject_entry)
+        self.trial_info_dict.append(self.subject_entry)
+
+        self._streaming_samples = False
+        self._streaming_events = False
+
+        self._sample_queue = Queue()
+        self._event_queue = Queue()
         return
 
     def trial_type_from_name(self, trial_name):
         return self.selected_trial_type
 
-    def __iter__(self):
-        for sample in self.samples:
-            with self._event_lock:
-                last_event = self.events[-1]
-            yield sample, last_event
+    def stream_samples(self):
+        self._streaming_samples = True
+        # todo
+        return
+
+    def stream_events(self):
+        self._streaming_events = True
+        # todo
         return
 
     def __next_trial_id(self):
@@ -71,7 +84,9 @@ class LiveDataSource(DataSource):
 
         last_trial = prev_trials[-1]
         last_trial_name, ext = os.path.splitext(last_trial)
-        last_trial_id = int(last_trial_name.split(os.sep)[-1])
+        last_trial_name = last_trial_name.split(os.sep)[-1]
+        last_trial_num = last_trial_name.split('-')[-1]
+        last_trial_id = int(last_trial_num)
         return f'{last_trial_id + 1:0>4}'
 
     def add_sample(self, sample_type, timestamp, sample_data):
@@ -82,9 +97,8 @@ class LiveDataSource(DataSource):
                     for idx, point in enumerate(sample_data)
                 }
                 sample_idx = len(self.samples)
-                sample_time = idx_to_time(sample_idx, self.sample_freq)
                 sample_entry = SampleEntry(
-                    idx=sample_idx, timestamp=sample_time, data=data_points
+                    idx=sample_idx, timestamp=timestamp, data=data_points
                 )
                 self.samples.append(sample_entry)
         return
@@ -93,11 +107,11 @@ class LiveDataSource(DataSource):
         with self._event_lock:
             with self._samples_lock:
                 sample_idx = len(self.samples)
-            sample_time = idx_to_time(sample_idx, self.sample_freq)  # TODO fix issue when only logging events
-            event_entry = EventEntry(
-                idx=sample_idx, timestamp=sample_time, event_type=event_type
-            )
-            self.events.append(event_entry)
+            if sample_idx > 0:
+                event_entry = EventEntry(
+                    idx=sample_idx, timestamp=timestamp, event_type=event_type
+                )
+                self.events.append(event_entry)
         return
 
     def set_subject(self, subject: str):
@@ -110,17 +124,32 @@ class LiveDataSource(DataSource):
         self.current_trial = self.__next_trial_id()
         return
 
-    def save_data(self, subject_entries: list = None, use_mp: bool = False, human_readable=True):
-        super().save_data(subject_entries, human_readable=human_readable)
-        return
-
 
 def main():
-    subject_name = 'Andrew'
+    from SystemControl.OBciPython.UdpClient import UdpClient
+    from SystemControl.StimulusGenerator import StimulusGenerator, GeneratorType
+
+    subject_name = 'Tara'
     trial_type = 'motor_imagery'
 
-    live_ds = LiveDataSource(subject=subject_name, trial_type=trial_type)
-    live_ds.save_data(human_readable=True)
+    generate_delay = 1
+    jitter_generator = 0.4
+    run_time = 5
+    verbosity = 0
+
+    stimulus_generator = StimulusGenerator(
+        delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
+    )
+    udp_client = UdpClient()
+    live_ds = LiveDataSource(sub_list=[stimulus_generator, udp_client], subject=subject_name, trial_type=trial_type)
+
+    stimulus_generator.run()
+    udp_client.run()
+    time.sleep(run_time)
+    stimulus_generator.stop()
+    udp_client.stop()
+
+    live_ds.save_data(use_mp=False, human_readable=True)
     return
 
 
