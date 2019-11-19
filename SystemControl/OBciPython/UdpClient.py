@@ -9,7 +9,6 @@ import time
 from json import JSONDecodeError
 from time import sleep
 
-# import SystemControl.DataSource.LiveDataSource as lds
 from SystemControl.utilities import uv_to_volts, Observable
 
 
@@ -18,7 +17,7 @@ class UdpClient(Observable):
     MAX_BUFFER_SIZE = 8192
 
     def __init__(self):
-        super().__init__()
+        Observable.__init__(self)
         self.ports = {
             12345: 'timeseries_raw',
             12346: 'timeseries_filtered',
@@ -72,8 +71,8 @@ class UdpClient(Observable):
                     if data_samples:
                         change_message = {
                             'time': time.time(),
-                            'port': self.ports[client_port],
-                            'event': [uv_to_volts(sample) for sample in data_samples[:-1]]
+                            'type': self.ports[client_port],
+                            'data': [uv_to_volts(sample) for sample in data_samples[:-1]]
                         }
                         self.set_changed_message(change_message)
             except JSONDecodeError as jde:
@@ -105,13 +104,13 @@ def main():
     trial_type = 'motor_imagery'
 
     udp_client = UdpClient()
-    data_source = LiveDataSource(sub_list=[udp_client], subject=current_subject, trial_type=trial_type)
+    data_source = LiveDataSource(subscriber_list=[udp_client], subject=current_subject, trial_type=trial_type)
 
     udp_client.run()
     sleep(record_length)
     udp_client.stop()
 
-    data_source.save_data(use_mp=False, human_readable=True)
+    data_source.save_data(start_time=0, end_time=-1)
     return
 
 

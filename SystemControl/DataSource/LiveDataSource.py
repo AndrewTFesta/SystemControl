@@ -2,126 +2,92 @@
 @title
 @description
 """
-import os
-import threading
 import time
-from queue import Queue
 
-from SystemControl import DATA_DIR
-from SystemControl.DataSource.DataSource import DataSource, SampleEntry, EventEntry, SubjectEntry
+import pandas as pd
+
+from SystemControl.DataSource.DataSource import DataSource, build_entry_id, TrialInfoEntry, TrialDataEntry
 from SystemControl.StimulusGenerator import MotorAction
-from SystemControl.utilities import find_files_by_type, Observer
+from SystemControl.utilities import Observer
 
 
 class LiveDataSource(DataSource, Observer):
 
-    def update(self, source, update_message):
-        if source in self.subscriptions:
-            if source.__class__.__name__ == 'UdpClient':
-                # self.add_sample(
-                #     self.ports[client_port], time.time(),
-                #     [uv_to_volts(sample) for sample in data_samples[:-1]]
-                # )
-                print(f'{source.__class__.__name__}: {update_message}')
-            elif source.__class__.__name__ == 'StimulusGenerator':
-                print(f'{source.__class__.__name__}: {update_message}')
-        return
-
-    def __init__(self, sub_list: list, subject: str, trial_type: str, log_level: str = 'CRITICAL'):
-        DataSource.__init__(self, log_level)
-        Observer.__init__(self, sub_list)
+    def __init__(self, subject: str, trial_type: str, subscriber_list: list, log_level: str = 'CRITICAL',
+                 save_method: str = 'h5'):
+        DataSource.__init__(self, log_level, save_method=save_method)
+        Observer.__init__(self, subscriber_list)
 
         self.name = 'recorded'
         self.sample_freq = 200
         self.trial_types = ['motor_imagery', 'baseline_open', 'baseline_closed']
-        self.selected_trial_type = trial_type
-
-        self.ascended_being = subject
         self.event_names = list(MotorAction.__members__)
 
-        self.subject_save_dir = os.path.join(DATA_DIR, self.name, self.ascended_being)
-        self.current_trial = self.__next_trial_id()
+        self.selected_trial_type = trial_type
+        self.ascended_being = subject
 
-        self.init_time = time.time()
-        self._samples_lock = threading.Lock()
-        self._event_lock = threading.Lock()
+        self.load_data()
+        self.trial_name = self.__next_trial_name()
+        self._current_event = MotorAction.REST
 
-        self.samples = []
-        self.events = []
-        subject_entry_fname = os.path.join(
-            self.dataset_directory, self.ascended_being, f'{self.selected_trial_type}-{self.current_trial}.json'
+        self.entry_id = build_entry_id([self.name, self.ascended_being, self.selected_trial_type, self.trial_name])
+        trial_info = TrialInfoEntry(
+            entry_id=self.entry_id, source=self.name, subject=self.ascended_being,
+            trial_type=self.selected_trial_type,
+            trial_name=self.trial_name,
         )
-        self.subject_entry = SubjectEntry(
-            path=subject_entry_fname, source_name=self.name, subject=self.ascended_being,
-            trial_type=self.selected_trial_type, trial_name=self.current_trial, samples=self.samples, events=self.events
-        )
-        self.trial_info_dict.append(self.subject_entry)
-
-        self._streaming_samples = False
-        self._streaming_events = False
-
-        self._sample_queue = Queue()
-        self._event_queue = Queue()
+        trial_entry_df = pd.DataFrame(data=[trial_info], columns=TrialInfoEntry._fields)
+        self.trial_info_df = self.trial_info_df.append(trial_entry_df, ignore_index=True, sort=False)
         return
 
-    def trial_type_from_name(self, trial_name):
-        return self.selected_trial_type
+    def update(self, source, update_message):
+        if source in self.subscriptions:
+            if source.__class__.__name__ == 'UdpClient':
+                update_time = update_message.get('time', None)
+                update_type = update_message.get('type', None)
+                update_data = update_message.get('data', None)
 
-    def stream_samples(self):
-        self._streaming_samples = True
-        # todo
+                self.add_sample(update_type, update_time, update_data)
+            elif source.__class__.__name__ == 'StimulusGenerator':
+                event = update_message.get('event', None)
+                if event:
+                    self.set_event(update_message['event'])
         return
 
-    def stream_events(self):
-        self._streaming_events = True
-        # todo
-        return
+    def __next_trial_name(self):
+        if len(self.trial_info_df.index) == 0:
+            return f'{1}'
 
-    def __next_trial_id(self):
-        prev_trials = sorted(find_files_by_type('json', self.subject_save_dir))
-        if len(prev_trials) == 0:
-            return f'{1:0>4}'
-
-        last_trial = prev_trials[-1]
-        last_trial_name, ext = os.path.splitext(last_trial)
-        last_trial_name = last_trial_name.split(os.sep)[-1]
-        last_trial_num = last_trial_name.split('-')[-1]
-        last_trial_id = int(last_trial_num)
-        return f'{last_trial_id + 1:0>4}'
+        prev_trial_names = sorted(self.trial_info_df['trial_name'].tolist())
+        return f'{prev_trial_names[-1] + 1}'
 
     def add_sample(self, sample_type, timestamp, sample_data):
-        with self._samples_lock:
-            if sample_type == 'timeseries_filtered':
-                data_points = {
-                    self.coi[idx]: point
-                    for idx, point in enumerate(sample_data)
-                }
-                sample_idx = len(self.samples)
-                sample_entry = SampleEntry(
-                    idx=sample_idx, timestamp=timestamp, data=data_points
-                )
-                self.samples.append(sample_entry)
+        if sample_type == 'timeseries_filtered':
+            trial_data_entry = TrialDataEntry(
+                entry_id=self.entry_id, idx=len(self.trial_data_df.index),
+                timestamp=timestamp, label=self._current_event.name,
+                C3=sample_data[0], Cz=sample_data[1], C4=sample_data[2],
+            )
+            append_df = pd.DataFrame(data=[trial_data_entry], columns=TrialDataEntry._fields)
+            self.trial_data_df = self.trial_data_df.append(append_df, ignore_index=True, sort=False)
+
+            change_message = {
+                'time': time.time(),
+                'type': 'sample',
+                'data': {'C3': 0, 'Cz': 0, 'C4': 0},
+            }
+            self.set_changed_message(change_message)
         return
 
-    def add_event(self, event_type, timestamp):
-        with self._event_lock:
-            with self._samples_lock:
-                sample_idx = len(self.samples)
-            if sample_idx > 0:
-                event_entry = EventEntry(
-                    idx=sample_idx, timestamp=timestamp, event_type=event_type
-                )
-                self.events.append(event_entry)
-        return
+    def set_event(self, event_type):
+        self._current_event = event_type
 
-    def set_subject(self, subject: str):
-        self.ascended_being = subject
-        self.current_trial = self.__next_trial_id()
-        return
-
-    def set_trial_type(self, trial_type: str):
-        self.selected_trial_type = trial_type
-        self.current_trial = self.__next_trial_id()
+        change_message = {
+            'time': time.time(),
+            'type': 'event',
+            'event': self._current_event,
+        }
+        self.set_changed_message(change_message)
         return
 
 
@@ -136,12 +102,17 @@ def main():
     jitter_generator = 0.4
     run_time = 5
     verbosity = 0
+    save_method = 'csv'
 
     stimulus_generator = StimulusGenerator(
         delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
     )
     udp_client = UdpClient()
-    live_ds = LiveDataSource(sub_list=[stimulus_generator, udp_client], subject=subject_name, trial_type=trial_type)
+    live_ds = LiveDataSource(
+        subject=subject_name, trial_type=trial_type,
+        subscriber_list=[stimulus_generator, udp_client],
+        save_method=save_method
+    )
 
     stimulus_generator.run()
     udp_client.run()
@@ -149,7 +120,7 @@ def main():
     stimulus_generator.stop()
     udp_client.stop()
 
-    live_ds.save_data(use_mp=False, human_readable=True)
+    live_ds.save_data(start_time=0, end_time=-1)
     return
 
 

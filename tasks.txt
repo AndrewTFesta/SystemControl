@@ -1,29 +1,33 @@
-todo display training params as header when starting to train
-todo kfold cross validation
-todo metafile tfclassifier
-todo tag model name with datasource and subject
-todo test model for all subjects
-todo load model xor use train params to create new model
+todo table of comparison of different window lengths versus accuracy - boxplot with subjects as points per box
+todo ability to control in different dimensions
+todo ai ability to learn things too complex for humans
 
-todo metafile datatransformer
-todo tag heatmap with id, sample_idx/event_idx, and trial type
-
-todo logging of trialrecorder
-todo logging of udpclient
-todo logging of stimulus generator
-todo recording sessions obci
+todo intro chapter
+todo background chapter
+todo design chapter
+todo experiments chapter
+todo results chapter
+todo conclusion chapter
+todo future work chapter
 
 todo add running classifier to visualizer
 todo catch sigkill and save data
+todo recording sessions obci
 
-todo move 'main's into notebooks
-todo move scripts into notebooks
 todo docs
 todo consistent styling of method ordering (alphabetical, private, properties, etc)
 todo cleanup requirements.txt and environment
 todo create system architecture diagram
 
+todo kfold cross validation
+todo log trialrecorder
+todo log udpclient
+todo log stimulus generator
+todo log tfclassifier
+
 todo    explore frequency domain
+            fft
+        csp dataset nme
         filter erratic eeg data
         rebuild bad signal
         apply baseline to signal to try to normalize signal

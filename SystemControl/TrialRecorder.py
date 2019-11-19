@@ -5,7 +5,9 @@
 import argparse
 import os
 import threading
+import time
 from queue import Queue, Empty
+from time import sleep
 
 import cv2
 import matplotlib
@@ -16,30 +18,21 @@ from win32api import GetSystemMetrics
 
 from SystemControl import IMAGES_DIR
 from SystemControl.DataSource import DataSource
-from SystemControl.DataSource.LiveDataSource import LiveDataSource, MotorAction
-from SystemControl.OBciPython.UdpClient import UdpClient
-from SystemControl.StimulusGenerator import StimulusGenerator, GeneratorType
+from SystemControl.DataSource.LiveDataSource import MotorAction
+from SystemControl.utilities import Observer
 
 matplotlib.use('TkAgg')
 style.use('ggplot')
 
 
-class TrialRecorder:
+class TrialRecorder(Observer):
 
-    def __init__(self, data_source: DataSource,  record_length: float = 5.0,
-                 x_windows_scale: int = 2, y_windows_scale: int = 2):
+    def __init__(self, data_source: DataSource, x_windows_scale: int = 2, y_windows_scale: int = 2):
+        Observer.__init__(self, [data_source])
         self.data_source = data_source
-        # self.stimulus_generator = stimulus_generator
-        # self.udp_client = udp_client
-        self.record_length = record_length
-
-        # self.stimulus_generator.add_callback(stimulus_generator.print_callback)
-        # self.stimulus_generator.add_callback(stimulus_generator.log_event_callback)
-        # self.stimulus_generator.add_callback(self.add_to_event_queue)
         ##############################
         self._action_queue = Queue()
-        self._sample_iter = data_source.__iter__()
-        next(self._sample_iter)
+        self.data_source_name = data_source.__class__.__name__
         ##############################
         self.image_width = 244
         self.image_height = 244
@@ -65,6 +58,9 @@ class TrialRecorder:
         self._img_artist = None
 
         self.ani = None
+
+        self.start_time = -1
+        self.end_time = -1
         return
 
     def __position_fig(self):
@@ -94,68 +90,85 @@ class TrialRecorder:
         self._img_artist = self._axes.imshow(img)
         return self._img_artist,
 
-    def run(self):
-        # self.stimulus_generator.run()
-        # self.udp_client.run()
+    def update(self, source, update_message):
+        if source in self.subscriptions:
+            if source.__class__.__name__ == self.data_source_name:
+                update_type = update_message.get('type', None)
+                update_time = update_message.get('time', None)
 
-        t = threading.Timer(self.record_length, self.stop)
+                if update_type == 'sample':
+                    update_data = update_message.get('data', None)
+                    # print(f'data: {update_data}')
+                elif update_type == 'event':
+                    update_event = update_message.get('event', None)
+                    print(f'event: {update_event}')
+                    self._action_queue.put(update_event)
+
+    def run(self, run_time: float):
+        t = threading.Timer(run_time, self.end_trial)
         t.daemon = True
         t.start()
+        self.start_time = time.time()
         self.run_animation()
         return
 
     def run_animation(self):
         self.ani = animation.FuncAnimation(
-            self._fig, self.update_stimuli, init_func=self.__init_plot, interval=self._update_delay, blit=True
+            self._fig, self.update_artists, init_func=self.__init_plot, interval=self._update_delay, blit=True
         )
 
         plt.show()
         return
 
-    def stop(self):
-        # self.stimulus_generator.stop()
-        # self.udp_client.stop()
-
+    def end_trial(self):
+        self.end_time = time.time()
         self.ani.event_source.stop()
         plt.close()
+        self.data_source.save_data(start_time=self.start_time, end_time=self.end_time)
         return
 
-    def update_stimuli(self, update_arg):
+    def update_artists(self, update_arg):
         try:
             next_action = self._action_queue.get_nowait()
-            action_name = next_action['cb_arg']
-            action_image = self.direction_images[action_name]
+            action_image = self.direction_images[next_action]
             self._img_artist.set_data(action_image)
         except Empty:
             pass
         return self._img_artist,
 
-    def add_to_event_queue(self, callback_arg, timestamp, action_type):
-        self._action_queue.put({'cb_arg': callback_arg, 'timestamp': timestamp, 'type': action_type})
-        return
-
 
 def main(margs):
+    from SystemControl.OBciPython.UdpClient import UdpClient
+    from SystemControl.StimulusGenerator import StimulusGenerator, GeneratorType
+    from SystemControl.DataSource.LiveDataSource import LiveDataSource
+    ################################################
     record_length = margs.get('record_length', 720)
     current_subject = margs.get('subject_name', 'random')
     trial_type = margs.get('session_type', 'motor_imagery')
     generate_delay = margs.get('stimulus_delay', 5)
     jitter_generator = margs.get('jitter', 0.2)
-    human_readable = margs.get('human_readable', False)
     ################################################
-    rand_seed = 42
-    use_mp = False
+    verbosity = 0
+    save_method = 'csv'
     ################################################
-    data_source = LiveDataSource(subject=current_subject, trial_type=trial_type)
-    stimulus_generator = StimulusGenerator(
-        data_source, delay=generate_delay, jitter=jitter_generator, seed=rand_seed, generator_type=GeneratorType.RANDOM
-    )
-    udp_client = UdpClient(data_source)
 
-    # trial_recorder = TrialRecorder(data_source, stimulus_generator, udp_client, record_length)
-    trial_recorder = TrialRecorder(data_source, record_length)
-    trial_recorder.run()
-    data_source.save_data(human_readable=human_readable, use_mp=use_mp)
+    stimulus_generator = StimulusGenerator(
+        delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
+    )
+    udp_client = UdpClient()
+    data_source = LiveDataSource(
+        subject=current_subject, trial_type=trial_type,
+        subscriber_list=[stimulus_generator, udp_client],
+        save_method=save_method
+    )
+
+    trial_recorder = TrialRecorder(
+        data_source=data_source, x_windows_scale=2, y_windows_scale=2
+    )
+    stimulus_generator.run()
+    udp_client.run()
+    sleep(1)
+    trial_recorder.run(record_length)
     return
 
 
@@ -173,8 +186,6 @@ if __name__ == '__main__':
                         help='proportion of stimulus delay to add or subtract (randomly) from time between stimulus\n'
                              'if stimulus delay is 5, and jitter is 0.2, then the actual time between stimuli will '
                              'be in the range (5-0.2*5, 5+0.2*5)')
-    parser.add_argument('--human_readable', action='store_true',
-                        help='whether to save the trial session in a human-readable format')
 
     args = parser.parse_args()
     main(vars(args))

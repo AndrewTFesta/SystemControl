@@ -26,7 +26,7 @@ class StimulusGenerator(Observable):
 
     def __init__(self, generator_type: GeneratorType = GeneratorType.RANDOM, delay: int = 5, jitter: float = 0.4,
                  verbosity: int = 0):
-        super().__init__()
+        Observable.__init__(self)
         delta_jitter = jitter * delay
         self.delay_timer = (delay - delta_jitter, delay + delta_jitter)
         self.running = False
@@ -58,7 +58,7 @@ class StimulusGenerator(Observable):
     def random_action(self):
         self._last_action = random.choice([each_action for each_action in MotorAction])
         self._last_time = time.time()
-        change_message = {self._last_time: self._last_action}
+        change_message = {'time': self._last_time, 'event': self._last_action}
         self.set_changed_message(change_message)
         if self.verbosity > 0:
             print(f'{self.__str__()}: {self.change_message}')
@@ -68,7 +68,7 @@ class StimulusGenerator(Observable):
         action_choices = [each_action for each_action in MotorAction]
         self._last_action = action_choices[(self._last_action.value + 1) % len(list(MotorAction.__members__))]
         self._last_time = time.time()
-        change_message = {self._last_time: self._last_action}
+        change_message = {'time': self._last_time, 'event': self._last_action}
         self.set_changed_message(change_message)
         if self.verbosity > 0:
             print(f'{self.__str__()}: {self.change_message}')
@@ -101,13 +101,13 @@ def main():
     stimulus_generator = StimulusGenerator(
         delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
     )
-    live_ds = LiveDataSource(sub_list=[stimulus_generator], subject=subject_name, trial_type=trial_type)
+    live_ds = LiveDataSource(subscriber_list=[stimulus_generator], subject=subject_name, trial_type=trial_type)
 
     stimulus_generator.run()
     sleep(run_time)
     stimulus_generator.stop()
 
-    live_ds.save_data(use_mp=False, human_readable=True)
+    live_ds.save_data(start_time=0, end_time=-1)
     return
 
 

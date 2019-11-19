@@ -4,6 +4,7 @@
 @desc
     Provides a suite of utility and convenience functions.
 """
+import hashlib
 import os
 import shutil
 import sys

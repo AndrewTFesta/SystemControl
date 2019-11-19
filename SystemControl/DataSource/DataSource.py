@@ -6,19 +6,20 @@ import hashlib
 import json
 import os
 import time
+from collections import namedtuple
 
 import pandas as pd
 
 from SystemControl import DATA_DIR
-from SystemControl.utilities import select_skip_generator
+from SystemControl.utilities import select_skip_generator, Observable
 
 
-def build_entry_id(data_dict):
+def build_entry_id(data_list):
     id_str = ''
     sep = ''
-    for data_key, data_val in data_dict.items():
-        id_str += f'{sep}{data_key}:{data_val}'
-        sep = ' | '
+    for data_val in data_list:
+        id_str += f'{sep}{data_val}'
+        sep = ':'
     id_bytes = id_str.encode('utf-8')
     entry_hash = hashlib.sha3_256(id_bytes).hexdigest()
     return entry_hash
@@ -46,35 +47,14 @@ def save_trial_data(subject_entry, start_time: float = -1, end_time: float = -1,
     return
 
 
-class DataSource:
+TrialInfoEntry = namedtuple('TrialInfoEntry', 'entry_id source subject trial_type trial_name')
+TrialDataEntry = namedtuple('TrialDataEntry', 'entry_id idx timestamp label C3 Cz C4')
 
-    @property
-    def dataset_directory(self):
-        return os.path.join(DATA_DIR, self.name)
 
-    @property
-    def trial_info_file(self):
-        if self.save_method == 'csv':
-            path = os.path.join(self.dataset_directory, f'trial_info.csv')
-        elif self.save_method == 'h5':
-            path = os.path.join(self.dataset_directory, f'trial_info.h5')
-        else:
-            print(f'Unable to save data: unrecognized file format: {self.save_method}')
-            path = ''
-        return path
-
-    @property
-    def trial_data_file(self):
-        if self.save_method == 'csv':
-            path = os.path.join(self.dataset_directory, f'trial_data.csv')
-        elif self.save_method == 'h5':
-            path = os.path.join(self.dataset_directory, f'trial_data.h5')
-        else:
-            print(f'Unable to save data: unrecognized file format: {self.save_method}')
-            path = ''
-        return path
+class DataSource(Observable):
 
     def __init__(self, log_level: str = 'WARNING', save_method: str = 'h5'):
+        Observable.__init__(self)
         self._log_level = log_level
         self.save_method = save_method
 
@@ -104,6 +84,32 @@ class DataSource:
 
     def __repr__(self):
         return self.__str__()
+
+    @property
+    def dataset_directory(self):
+        return os.path.join(DATA_DIR, self.name)
+
+    @property
+    def trial_info_file(self):
+        if self.save_method == 'csv':
+            path = os.path.join(self.dataset_directory, f'trial_info.csv')
+        elif self.save_method == 'h5':
+            path = os.path.join(self.dataset_directory, f'trial_info.h5')
+        else:
+            print(f'Unable to save data: unrecognized file format: {self.save_method}')
+            path = ''
+        return path
+
+    @property
+    def trial_data_file(self):
+        if self.save_method == 'csv':
+            path = os.path.join(self.dataset_directory, f'trial_data.csv')
+        elif self.save_method == 'h5':
+            path = os.path.join(self.dataset_directory, f'trial_data.h5')
+        else:
+            print(f'Unable to save data: unrecognized file format: {self.save_method}')
+            path = ''
+        return path
 
     def downsample_generator(self, skip_amount: int = 2):
         base_iter = self.__iter__()
@@ -146,22 +152,32 @@ class DataSource:
             ]
         trial_samples = []
         for index, row in current_trials.iterrows():
-            row_id = row['id']
-            id_samples = self.trial_data_df.loc[self.trial_data_df['id'] == row_id]
+            row_id = row['entry_id']
+            id_samples = self.trial_data_df.loc[self.trial_data_df['entry_id'] == row_id]
             trial_samples.append(id_samples)
         return trial_samples
 
     def load_data(self):
         print('Loading dataset')
+        if not os.path.isfile(self.trial_info_file):
+            print(f'Unable to locate trial info file: {self.trial_info_file}')
+            self.trial_info_df = pd.DataFrame(columns=TrialInfoEntry._fields)
+            self.trial_data_df = pd.DataFrame(columns=TrialDataEntry._fields)
+            return
+        if not os.path.isfile(self.trial_data_file):
+            print(f'Unable to locate trial data file: {self.trial_info_file}')
+            self.trial_info_df = pd.DataFrame(columns=TrialInfoEntry._fields)
+            self.trial_data_df = pd.DataFrame(columns=TrialDataEntry._fields)
+            return
+
         time_start = time.time()
         if self.save_method == 'csv':
             self.trial_info_df = pd.read_csv(self.trial_info_file)
             self.trial_data_df = pd.read_csv(self.trial_data_file)
+
         elif self.save_method == 'h5':
             self.trial_info_df = pd.read_hdf(self.trial_info_file, key='physio_trial_info')
             self.trial_data_df = pd.read_hdf(self.trial_data_file, key='physio_trial_data')
-
-
         else:
             print(f'Unable to save data: unrecognized file format: {self.save_method}')
         time_end = time.time()
@@ -183,24 +199,25 @@ class DataSource:
         return
 
     def save_data(self, start_time: float = 0.0, end_time: float = -1):
+        if not os.path.isdir(self.dataset_directory):
+            os.makedirs(self.dataset_directory)
         print(f'Saving {len(self.trial_info_df)} trials using method: {self.save_method}')
+
+        save_data_df = self.trial_data_df
+        if start_time >= 0:
+            save_data_df = save_data_df.loc[save_data_df['timestamp'] >= start_time]
+        if end_time >= 0:
+            save_data_df = save_data_df[save_data_df['timestamp'] <= end_time]
+
         time_start = time.time()
         if self.save_method == 'csv':
             self.trial_info_df.to_csv(self.trial_info_file, index=False)
-            self.trial_data_df.to_csv(self.trial_data_file, index=False)
+            save_data_df.to_csv(self.trial_data_file, index=False)
         elif self.save_method == 'h5':
             self.trial_info_df.to_hdf(self.trial_info_file, key='physio_trial_info')
-            self.trial_data_df.to_hdf(self.trial_data_file, key='physio_trial_data')
+            save_data_df.to_hdf(self.trial_data_file, key='physio_trial_data')
         else:
             print(f'Unable to save data: unrecognized file format: {self.save_method}')
         time_end = time.time()
         print(f'Time to save info and data: {time_end - time_start:.4f} seconds')
         return
-
-
-def main():
-    return
-
-
-if __name__ == '__main__':
-    main()

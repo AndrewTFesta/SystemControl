@@ -19,7 +19,6 @@ from tqdm import tqdm
 from SystemControl import DATA_DIR
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
-from SystemControl.DataSource.RecordedDataSource import RecordedDataSource
 
 matplotlib.use('Qt5Agg')
 style.use('ggplot')
@@ -70,7 +69,7 @@ class DataTransformer:
     def __init__(self, data_source: DataSource, window_length: float, num_rows: int = 100):
         self.data_source = data_source
         self.window_length = window_length
-        self.num_samples = self.data_source.get_num_samples()
+
         self.cmap = matplotlib.cm.get_cmap(CMAP.gist_heat.name)
         self.num_rows = num_rows
         self.num_cols = int(data_source.sample_freq * window_length)
@@ -92,36 +91,38 @@ class DataTransformer:
 
     def compute_images(self, spacing: float = 0.2):
         data_iter = list(self.data_source.window_generator(window_length=self.window_length, spacing=spacing))
+        print(f'Using a single process to compute {len(data_iter)} images')
         pbar = tqdm(
             total=len(data_iter),
             desc=f'Computing images: length: {self.window_length:0.2f}, spacing: {spacing}',
             file=sys.stdout
         )
-        for entry in data_iter:
-            sample_list = entry[0]
-            event_entry = entry[1]
-            event_type = event_entry["event_type"]
-            sample_idx = sample_list[0]["idx"]
-
+        for window in data_iter:
+            window_label_str = window['label'].value_counts().idxmax()
+            window_idx = window['idx'].iloc[0]
             for interp_type in Interpolation:
-                window_data = np.zeros((self.num_rows, 0), dtype='float32')
-                for sample_entry in sample_list:
-                    sample_data = sample_entry["data"]
-                    data_vals = np.array(list(sample_data.values()))
-
-                    col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=interp_type)
-                    norm_vals = (col_vals - np.min(col_vals)) / np.ptp(col_vals)
-                    window_data = np.column_stack([window_data, norm_vals])
-
-                color_image = self.cmap(window_data)[:, :, :-1]
-                img = cv2.convertScaleAbs(color_image, alpha=255.0)
-                cv_image = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                cv_image, interp_type = self.heatmap_from_window(window, interp_type)
                 self.image_lists[interp_type.name]["images"].append({
-                    "idx": sample_idx, "event": event_type, "image": cv_image
+                    "idx": window_idx, "event": window_label_str, "image": cv_image
                 })
             pbar.update(1)
         pbar.close()
         return
+
+    def heatmap_from_window(self, window, interp_type):
+        window_data = window[self.data_source.coi]
+        window_np_data = window_data.to_numpy()
+
+        window_extrapolation = np.zeros((self.num_rows, 0), dtype='float32')
+        for data_vals in window_np_data:
+            col_vals = interpolate_row(data_vals, num_rows=self.num_rows, interp_type=interp_type)
+            norm_vals = (col_vals - np.min(col_vals)) / np.ptp(col_vals)
+            window_extrapolation = np.column_stack([window_extrapolation, norm_vals])
+
+        color_image = self.cmap(window_extrapolation)[:, :, :-1]
+        img = cv2.convertScaleAbs(color_image, alpha=255.0)
+        cv_image = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        return cv_image, interp_type
 
     def save_heatmaps(self):
         for interp_type, image_info in self.image_lists.items():
@@ -141,7 +142,7 @@ class DataTransformer:
                 os.makedirs(event_dir)
 
             img = entry["image"]
-            img_fname = os.path.join(event_dir, f'id_{img_id(img)}.png')
+            img_fname = os.path.join(event_dir, f'idx_{entry["idx"]}_id_{img_id(img)}.png')
             cv2.imwrite(filename=img_fname, img=img)
             pbar.update(1)
         pbar.close()
@@ -150,11 +151,12 @@ class DataTransformer:
 
 def main():
     trial_type = 'motor_imagery_right_left'
-    num_subjects = -1
+    num_subjects = 2
     subject_name = 'flat'
+    save_method = 'csv'
 
-    # data_source = PhysioDataSource(subject=None, trial_type=trial_type)
-    data_source = RecordedDataSource(subject=subject_name, trial_type=trial_type)
+    data_source = PhysioDataSource(subject=None, trial_type=trial_type, save_method=save_method)
+    # data_source = RecordedDataSource(subject=subject_name, trial_type=trial_type)
     subject_list = data_source.subject_names
     if num_subjects > 0:
         subject_list = subject_list[:num_subjects]

@@ -34,7 +34,7 @@ import pandas as pd
 from mne.io import read_raw_edf
 from tqdm import tqdm
 
-from SystemControl.DataSource.DataSource import DataSource, build_entry_id
+from SystemControl.DataSource.DataSource import DataSource, build_entry_id, TrialInfoEntry, TrialDataEntry
 from SystemControl.utilities import download_large_file, unzip_file, find_files_by_type, idx_to_time
 
 DEBUG = False
@@ -76,12 +76,13 @@ class PhysioDataSource(DataSource):
         self.ascended_being = subject if subject else self.subject_names[0]
         self.selected_trial_type = trial_type if trial_type else self.trial_types[4]
 
+        self.load_data()
+
         self._validated = False
         if not self.__validate_dataset():
             self.__download_dataset(use_mp=True, debug=DEBUG)
             self.save_data()
-        else:
-            self.load_data()
+
         self.set_subject(self.ascended_being)
         return
 
@@ -133,8 +134,8 @@ class PhysioDataSource(DataSource):
 
         trial_info_list = []
         trial_data_list = []
-        num_cpus = mp.cpu_count()
         if use_mp:
+            num_cpus = mp.cpu_count()
             print(f'Using max {num_cpus} processes to reformat {len(physio_files)} files')
             mp_pool = mp.Pool(processes=num_cpus)
             pbar = tqdm(total=len(physio_files), desc=f'Building trial dataframes', file=sys.stdout)
@@ -151,7 +152,7 @@ class PhysioDataSource(DataSource):
 
             for each_file in physio_files:
                 mp_pool.apply_async(
-                    self.reformat_as_dataframes, (each_file,),
+                    self.reformat_edf_files, (each_file,),
                     callback=process_success,
                 )
             mp_pool.close()
@@ -161,7 +162,7 @@ class PhysioDataSource(DataSource):
             print(f'Using a single process to reformat {len(physio_files)} files')
             pbar = tqdm(total=len(physio_files), desc=f'Building trial dataframes', file=sys.stdout)
             for each_file in physio_files:
-                each_trial_info, each_trial_samples = self.reformat_as_dataframes(each_file)
+                each_trial_info, each_trial_samples = self.reformat_edf_files(each_file)
                 trial_info_list.append(each_trial_info)
                 trial_data_list.extend(each_trial_samples)
                 pbar.update(1)
@@ -170,20 +171,18 @@ class PhysioDataSource(DataSource):
         self.trial_data_df = pd.DataFrame(trial_data_list)
         return
 
-    def reformat_as_dataframes(self, file_name):
+    def reformat_edf_files(self, file_name):
         mne.set_log_level('CRITICAL')  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
         f_basename, _ = os.path.splitext(os.path.basename(file_name))
         subject_name = f_basename[:4]
         entry_trial = f_basename[4:]
 
-        trial_info = {
-            'source': self.name,
-            'subject': subject_name,
-            'trial_type': self.__trial_type_from_name(entry_trial),
-            'trial_name': entry_trial,
-        }
-        trial_id = build_entry_id(trial_info)
-        trial_info['id'] = trial_id
+        entry_id = build_entry_id([self.name, subject_name, self.__trial_type_from_name(entry_trial), entry_trial])
+        trial_info = TrialInfoEntry(
+            entry_id=entry_id, source=self.name, subject=subject_name,
+            trial_type=self.__trial_type_from_name(entry_trial),
+            trial_name=entry_trial,
+        )
 
         raw_edf = read_raw_edf(file_name, preload=True, verbose='CRITICAL')
         cleaned_edf = self.__clean_raw_edf(raw_edf)
@@ -191,26 +190,23 @@ class PhysioDataSource(DataSource):
         np_data = np.transpose(data)
         events_timings, event_indices = mne.events_from_annotations(cleaned_edf)
 
-        sample_list = []
+        trial_data_list = []
         for sample_idx, each_sample in enumerate(np_data):
             current_event = self.__last_event_before_idx(events_timings, sample_idx)
-            sample_entry = {
-                'id': trial_id,
-                'idx': sample_idx,
-                'timestamp': idx_to_time(sample_idx, self.sample_freq),
-                'label': current_event
-            }
-            for dp_idx, dp in enumerate(each_sample.tolist()):
-                sample_entry[self.coi[dp_idx]] = dp
-            sample_list.append(sample_entry)
-
-        return trial_info, sample_list
+            electrode_vals = each_sample.tolist()
+            trial_data_entry = TrialDataEntry(
+                entry_id=entry_id, idx=sample_idx, timestamp=idx_to_time(sample_idx, self.sample_freq),
+                label=current_event, C3=electrode_vals[0], Cz=electrode_vals[0], C4=electrode_vals[0],
+            )
+            trial_data_list.append(trial_data_entry)
+        return trial_info, trial_data_list
 
     def __last_event_before_idx(self, event_list, sample_idx):
-        trimmed_list = []
-        for event in event_list:
-            if event[0] <= sample_idx:
-                trimmed_list.append(event)
+        trimmed_list = [
+            event
+            for event in event_list
+            if event[0] <= sample_idx
+        ]
         return self.event_names[trimmed_list[-1][2] - 1]
 
     def __validate_dataset(self) -> bool:
@@ -237,8 +233,9 @@ def main():
     :return:
     """
     display_generators = True
+    save_method = 'csv'
 
-    physio_ds = PhysioDataSource(save_method='h5')
+    physio_ds = PhysioDataSource(save_method=save_method)
     print(physio_ds.subject_names)
 
     if display_generators:

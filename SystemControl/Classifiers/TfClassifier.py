@@ -14,7 +14,7 @@ import collections
 import json
 import os
 import random
-import time
+import shutil
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -22,64 +22,223 @@ import cv2 as cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
 from matplotlib import style
 from matplotlib.ticker import MaxNLocator
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
+from tensorboard.compat.tensorflow_stub.errors import UnknownError
 from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
 from SystemControl.utilities import find_files_by_type, filter_list_of_dicts
 
-
 TrainParameters = collections.namedtuple(
-    'TrainParameter',
-    [
-        'data_source', 'chosen_being', 'target_column', 'interpolation_list',
-        'window_lengths', 'img_height', 'img_width',  'learning_rate', 'batch_size', 'num_epochs'
-    ]
+    'TrainParameters',
+    'data_source, chosen_being, target_column, interpolation_list, window_lengths,'
+    'img_height, img_width, learning_rate, batch_size, num_epochs'
 )
+
+
+def build_model_id(train_params: TrainParameters):
+    interp_str = '-'.join(train_params.interpolation_list)
+    window_str = '-'.join(train_params.window_lengths).replace('0.', '')
+    model_str = f'{train_params.data_source}_{train_params.chosen_being}_{train_params.target_column}_' \
+                f'{interp_str}_{window_str}_{train_params.img_width}w_{train_params.img_height}h'
+    return model_str
+
+
+def default_model_metrics():
+    metrics_list = [
+        keras.metrics.SparseCategoricalAccuracy(),
+    ]
+    return metrics_list
+
+
+def default_model_callbacks(metric_fname, verbosity, save_checkpoints_file: str = None):
+    fit_callbacks = [
+        keras.callbacks.EarlyStopping(
+            monitor='val_loss', verbose=verbosity, patience=3, mode='auto', restore_best_weights=True
+        ),
+        keras.callbacks.CSVLogger(filename=metric_fname, separator=',', append=True)
+    ]
+    if save_checkpoints_file:
+        fit_callbacks.append(keras.callbacks.ModelCheckpoint(
+            filepath=save_checkpoints_file, monitor='val_loss', verbose=verbosity, mode='auto',
+            save_weights_only=False, save_best_only=True
+        ))
+    return fit_callbacks
+
+
+def default_model_optimizer(lr):
+    optimizer = keras.optimizers.Adam(lr=lr)
+    return optimizer
+
+
+def default_model_loss():
+    loss_func = keras.losses.SparseCategoricalCrossentropy()
+    return loss_func
+
+
+def load_model(model_fname):
+    model = None
+    if os.path.isfile(model_fname):
+        model = keras.models.load_model(model_fname)
+    return model
+
+
+def plot_confusion_matrix(y_true, y_pred, class_labels, title,
+                          cmap: str = 'Blues', annotate_entries: bool = True, save_plot: str = None):
+    style.use('ggplot')
+    fig_title = f'Target: \'{title}\''
+    conf_mat = confusion_matrix(y_true, y_pred)
+    conf_mat = conf_mat.astype('float') / conf_mat.sum(axis=1)[:, np.newaxis]
+
+    lower_bound = np.min(y_true) - 0.5
+    upper_bound = np.max(y_true) + 0.5
+
+    fig, ax = plt.subplots()
+    im = ax.imshow(conf_mat, interpolation='nearest', cmap=cmap)
+    ax.figure.colorbar(im, ax=ax)
+
+    xtick_marks = np.arange(conf_mat.shape[1])
+    ytick_marks = np.arange(conf_mat.shape[0])
+
+    ax.set_xticks(xtick_marks)
+    ax.set_yticks(ytick_marks)
+
+    ax.set_xbound(lower=lower_bound, upper=upper_bound)
+    ax.set_ybound(lower=lower_bound, upper=upper_bound)
+    ax.invert_yaxis()
+
+    ax.set_xticklabels(class_labels)
+    ax.set_yticklabels(class_labels)
+
+    ax.set_xlabel('Predicted label')
+    ax.set_ylabel('True label')
+
+    ax.set_title(fig_title)
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
+
+    if annotate_entries:
+        annot_format = '0.2f'
+        thresh = conf_mat.max() / 2.
+        for i in range(conf_mat.shape[0]):
+            for j in range(conf_mat.shape[1]):
+                conf_entry = conf_mat[i, j]
+                ax.text(
+                    j, i, format(conf_entry, annot_format), ha='center', va='center',
+                    color='white' if conf_entry > thresh else 'black'
+                )
+    fig.tight_layout()
+
+    if save_plot:
+        plt.savefig(save_plot)
+    else:
+        plt.show()
+    plt.close()
+    return
+
+
+def split_data(data, targets, test_size=0.25, val_size=0.15):
+    train_val_x, test_x, train_val_y, test_y = train_test_split(
+        data, targets, test_size=test_size
+    )
+
+    train_x, val_x, train_y, val_y = train_test_split(
+        train_val_x, train_val_y, test_size=val_size
+    )
+
+    data_dict = {
+        'train': {'images': train_x, 'labels': train_y.to_numpy()},
+        'validation': {'images': val_x, 'labels': val_y.to_numpy()},
+        'test': {'images': test_x, 'labels': test_y.to_numpy()},
+    }
+    return data_dict
 
 
 class TfClassifier:
 
-    def __init__(self, train_params, model_id: str,
-                 *, verbosity: int = 1, rand_seed: int = 42, pretrained_name: str = None):
+    @property
+    def model_type(self):
+        return 'cnn'
+
+    def __init__(self, train_params: TrainParameters, *,
+                 save_checkpoints: bool = False, force_overwrite: bool = False, verbosity: int = 1):
 
         self._train_params = train_params
-        heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{self._train_params.data_source}')
+        self._verbosity = verbosity
+
+        heatmap_dir = os.path.join(
+            DATA_DIR, 'heatmaps',
+            f'data_source_{self._train_params.data_source}',
+            f'subject_{self._train_params.chosen_being}'
+        )
         for duration in self._train_params.window_lengths:
             duration_data_dir = os.path.join(heatmap_dir, f'window_length_{duration}')
             if not os.path.isdir(duration_data_dir):
                 raise ValueError(f'Dataset directory not found: {duration_data_dir}')
 
-        time_stamp = time.strftime('%y_%m_%d_%H_%M_%S', time.gmtime())
-        self.model_name = f'model_{model_id}'
-        self.model_dir = os.path.join(DATA_DIR, 'models', 'tf', f'{self.type_name}', f'{self.model_name}_{time_stamp}')
-        if not os.path.isdir(self.model_dir):
-            os.makedirs(self.model_dir)
+        self.dataset_directory = heatmap_dir
+        self.model_id = build_model_id(train_params)
+        self.model_dir = os.path.join(DATA_DIR, 'models', self.model_type, f'{self.model_id}')
+        self.train_params_fname = os.path.join(self.model_dir, f'train_params.json')
+        self.epoch_metrics_fname = os.path.join(self.model_dir, 'epoch_metrics.csv')
+        self.eval_metrics_fname = os.path.join(self.model_dir, f'eval_metrics.json')
+        self.model_fname = os.path.join(self.model_dir, 'trained_model.hdf5')
 
-        self._rand_seed = rand_seed
-        self._verbosity = verbosity
-        self._heatmap_directory = heatmap_dir
+        if os.path.isdir(self.model_dir) and force_overwrite:
+            shutil.rmtree(self.model_dir)
 
-        raw_data = self.__load_image_files()
-        self.class_names = list(np.unique([each_entry[self._train_params.target_column] for each_entry in raw_data]))
-        filtered_x, filtered_y = self.__filter_data_entries(raw_data)
-        self._data_splits = self.__split_data(filtered_x, filtered_y)
+        self._checkpoint_dir = None
+        self._save_checkpoints_fname = None
+        if save_checkpoints:
+            self._checkpoint_dir = os.path.join(self.model_dir, f'model_checkpoints')
+            self._save_checkpoints_fname = os.path.join(self._checkpoint_dir, f'val_loss_{{val_loss:0.4f}}.hdf5')
+            if not os.path.isdir(self._checkpoint_dir):
+                os.makedirs(self._checkpoint_dir)
+        else:
+            if not os.path.isdir(self.model_dir):
+                os.makedirs(self.model_dir)
 
         self._train_history = None
         self._eval_metrics = None
-        self.model = self.__build_model(pretrained_name)
-        self.save_train_params()
+
+        self._data_splits = None
+        raw_data = self.__load_image_files()
+        self.class_names = list(
+            np.unique([each_entry[self._train_params.target_column] for each_entry in raw_data])
+        )
+
+        self.model = load_model(self.model_fname)
+        if self.model:
+            print('prev model found')
+
+            # todo handle case where loading info fails for some reason (reset model?)
+            self.__load_epoch_history()
+            self.__load_eval_metrics()
+        else:
+            print('no prev model found')
+            filtered_x, filtered_y = self.__filter_data_entries(raw_data)
+            self._data_splits = split_data(filtered_x, filtered_y)
+            self.model = self.__build_new_model()
         return
 
-    @property
-    def type_name(self):
-        return 'cnn'
+    def train_and_evaluate(self):
+        self.train()
+        self.evaluate()
 
-    def __build_model(self, model_name):
+        self.__save_train_parameters()
+        self.__save_eval_metrics()
+        self.__save_model()
+
+        self.__plot_train_metrics()
+        self.__plot_test_metrics()
+        self.__plot_model()
+        return True
+
+    def __build_new_model(self):
         input_shape = (self._train_params.img_height, self._train_params.img_width, 3)
         num_classes = len(self.class_names)
         model = keras.Sequential()
@@ -96,9 +255,9 @@ class TfClassifier:
         model.add(keras.layers.Dense(num_classes, activation='sigmoid'))
 
         model.compile(
-            optimizer=self.default_model_optimizer(self._train_params.learning_rate),
-            loss=self.default_model_loss(),
-            metrics=self.default_model_metrics()
+            optimizer=default_model_optimizer(self._train_params.learning_rate),
+            loss=default_model_loss(),
+            metrics=default_model_metrics()
         )
         return model
 
@@ -110,7 +269,7 @@ class TfClassifier:
             'window_length': self._train_params.window_lengths
         }
         filtered_dataset = filter_list_of_dicts(data_to_filter, filter_criteria)
-        rand_generator = random.Random(self._rand_seed)
+        rand_generator = random.Random()
         rand_generator.shuffle(filtered_dataset)
         filtered_df = pd.DataFrame(filtered_dataset)
 
@@ -122,7 +281,7 @@ class TfClassifier:
         return filtered_x, filtered_y
 
     def __load_image_files(self):
-        img_files = find_files_by_type('png', self._heatmap_directory)
+        img_files = find_files_by_type('png', self.dataset_directory)
         data_list = []
         for each_file in tqdm(img_files, desc='Reading dataset directory hierarchy'):
             file_parts = each_file.split(os.path.sep)
@@ -148,78 +307,84 @@ class TfClassifier:
         np_images = np_images / 255.0
         return np_images
 
-    def default_model_callbacks(self):
-        fit_callbacks = [
-            keras.callbacks.EarlyStopping(
-                monitor='val_loss', verbose=self._verbosity, patience=3, mode='auto', restore_best_weights=True
-            ),
-            keras.callbacks.ModelCheckpoint(
-                filepath=os.path.join(self.model_dir, 'epoch_{epoch:02d}-val_loss_{val_loss:.2f}.hdf5'),
-                monitor='val_loss', verbose=self._verbosity, mode='auto', save_weights_only=False, save_best_only=True
-            ),
-            keras.callbacks.CSVLogger(
-                filename=os.path.join(self.model_dir, 'epoch_metrics.csv'),
-                separator=',', append=True
-            )
-        ]
-        return fit_callbacks
+    def __load_epoch_history(self):
+        with open(self.epoch_metrics_fname, 'r+') as epoch_history_file:
+            self._train_history = pd.read_csv(epoch_history_file)
+        return
 
-    @staticmethod
-    def default_model_metrics():
-        metrics_list = [
-            keras.metrics.SparseCategoricalAccuracy(),
-        ]
-        return metrics_list
+    def __load_eval_metrics(self):
+        with open(self.eval_metrics_fname, 'r+') as metrics_file:
+            self._eval_metrics = json.load(metrics_file)
+        return
 
-    @staticmethod
-    def default_model_optimizer(lr):
-        optimizer = keras.optimizers.Adam(lr=lr)
-        return optimizer
+    def __save_eval_metrics(self):
+        with open(self.eval_metrics_fname, 'w+') as metrics_file:
+            json.dump(self._eval_metrics, metrics_file, indent=2)
+        return
 
-    @staticmethod
-    def default_model_loss():
-        loss_func = keras.losses.SparseCategoricalCrossentropy()
-        return loss_func
+    def __save_train_parameters(self):
+        with open(self.train_params_fname, 'w+') as meta_file:
+            json.dump(self._train_params._asdict(), meta_file, indent=2)
+        return
 
-    def __split_data(self, data, targets, test_size=0.25, val_size=0.15):
-        train_val_x, test_x, train_val_y, test_y = train_test_split(
-            data, targets, test_size=test_size, random_state=self._rand_seed
-        )
-
-        train_x, val_x, train_y, val_y = train_test_split(
-            train_val_x, train_val_y, test_size=val_size, random_state=self._rand_seed
-        )
-
-        data_dict = {
-            'train': {
-                'images': self.__load_images(train_x),
-                'labels': train_y.to_numpy()
-            },
-            'validation': {
-                'images': self.__load_images(val_x),
-                'labels': val_y.to_numpy()
-            },
-            'test': {
-                'images': self.__load_images(test_x),
-                'labels': test_y.to_numpy()
-            },
-        }
-        return data_dict
+    def __save_model(self):
+        self.model.save(self.model_fname)
+        return
 
     def train(self):
-        self._train_history = self.model.fit(
-            self._data_splits['train']['images'], self._data_splits['train']['labels'],
+        print(f'Starting training: {self.model_id}')
+        print(f'\tdata source:       {self._train_params.data_source}')
+        print(f'\tchosen_being:      {self._train_params.chosen_being}')
+        print(f'\ttarget_column:     {self._train_params.target_column}')
+        print(f'\tinterpolation:     {self._train_params.interpolation_list}')
+        print(f'\twindow size:       {self._train_params.window_lengths}')
+        print(f'\tlearning_rate:     {self._train_params.learning_rate:0.6f}')
+        print(f'\tbatch_size:        {self._train_params.batch_size}')
+        print(f'\tnum_epochs:        {self._train_params.num_epochs}')
+
+        loaded_train_images = self.__load_images(self._data_splits['train']['images'])
+        loaded_val_images = self.__load_images(self._data_splits['validation']['images'])
+        self.model.fit(
+            loaded_train_images, self._data_splits['train']['labels'],
             epochs=self._train_params.num_epochs, verbose=self._verbosity, batch_size=self._train_params.batch_size,
-            callbacks=self.default_model_callbacks(),
-            validation_data=(self._data_splits['validation']['images'], self._data_splits['validation']['labels'])
+            validation_data=(loaded_val_images, self._data_splits['validation']['labels']),
+            callbacks=default_model_callbacks(
+                metric_fname=self.epoch_metrics_fname,
+                verbosity=self._verbosity,
+                save_checkpoints_file=self._save_checkpoints_fname
+            ),
         )
-        return self
+
+        self.__load_epoch_history()
+        return
 
     def evaluate(self):
-        self._eval_metrics = self.model.evaluate(
-            self._data_splits['test']['images'], self._data_splits['test']['labels'], verbose=self._verbosity
+        print(f'Evaluating model: {self.model_id}')
+        print(f'Number of test images: {len(self._data_splits["test"]["images"])}')
+
+        loaded_test_images = self.__load_images(self._data_splits['test']['images'])
+        model_performance = self.model.evaluate(
+            loaded_test_images, self._data_splits['test']['labels'], verbose=0
         )
-        return self
+        self._eval_metrics = {
+            metric_name: float(model_performance[metric_index])
+            for metric_index, metric_name in enumerate(self.model.metrics_names)
+        }
+        return
+
+    def predict(self, image_list):
+        print(f'Predicting using model: {self.model_id}')
+        print(f'Number of predictions: {len(image_list)}')
+
+        if isinstance(image_list, pd.Series):
+            if isinstance(image_list.iloc[-1], str):
+                image_list = self.__load_images(image_list)
+        else:
+            if isinstance(image_list[-1], str):
+                image_list = self.__load_images(image_list)
+
+        model_predictions = self.model.predict(image_list)
+        return model_predictions
 
     def display_dataset(self):
         train_event_counts = pd.Series(self._data_splits['train']['labels']).value_counts()
@@ -241,40 +406,34 @@ class TfClassifier:
 
         print('=====================================================================')
         print(f'Data source: {self._train_params.data_source}')
-        print(f'Chosen being: {len(self._train_params.chosen_being)}')
+        print(f'Chosen being: {self._train_params.chosen_being}')
         print(f'Number of interpolation types: {len(self._train_params.interpolation_list)}')
         print(f'\t{", ".join(self._train_params.interpolation_list)}')
         print(f'Number of classes: {len(self.class_names)}')
         print(f'\t{", ".join(self.class_names)}')
         print(f'Number of entries in dataset: {total_count}')
         print('=====================================================================')
-        print(f'Number train images: {num_train_images} -> {num_train_labels}')
-        sep = '\t'
+        print(f'Number of train images: {num_train_images}')
         for event_idx, event_count in train_event_counts.iteritems():
-            print(f'{sep}{self.class_names[event_idx]}: {event_count} '
-                  f'({(event_count * 100) / num_train_labels:0.4f} %)', end='')
-            sep = ', '
+            print(f'\t{self.class_names[event_idx]}: {event_count} '
+                  f'({(event_count * 100) / num_train_labels:0.4f} %)')
         print()
         print('=====================================================================')
-        print(f'Number validation images: {num_val_images} -> {num_val_labels}')
-        sep = '\t'
+        print(f'Number of validation images: {num_val_images}')
         for event_idx, event_count in val_event_counts.iteritems():
-            print(f'{sep}{self.class_names[event_idx]}: {event_count} '
-                  f'({(event_count * 100) / num_val_labels:0.4f} %)', end='')
-            sep = ', '
+            print(f'\t{self.class_names[event_idx]}: {event_count} '
+                  f'({(event_count * 100) / num_val_labels:0.4f} %)')
         print()
         print('=====================================================================')
-        print(f'Number test images: {num_test_images} -> {num_test_labels}')
-        sep = '\t'
+        print(f'Number of test images: {num_test_images}')
         for event_idx, event_count in test_event_counts.iteritems():
-            print(f'{sep}{self.class_names[event_idx]}: {event_count} '
-                  f'({(event_count * 100) / num_test_labels:0.4f} %)', end='')
-            sep = ', '
+            print(f'\t{self.class_names[event_idx]}: {event_count} '
+                  f'({(event_count * 100) / num_test_labels:0.4f} %)')
         print()
         print('=====================================================================')
-        print(f'Shape train images: {train_img_shape}')
-        print(f'Shape validation images: {val_img_shape}')
-        print(f'Shape test images: {test_img_shape}')
+        print(f'Shape of train images:      {train_img_shape}')
+        print(f'Shape of validation images: {val_img_shape}')
+        print(f'Shape of test images:       {test_img_shape}')
         print('=====================================================================')
         return
 
@@ -292,6 +451,39 @@ class TfClassifier:
         self.__show_samples(test_images, test_labels, title='Test', num_rows=5, num_cols=5, save_plot=True)
         return
 
+    def display_train_history(self):
+        print('==========================================================================')
+        print('Training history')
+        sep = '\t'
+        for metric_name, val_list in self._train_history.items():
+            print(f'{sep}{metric_name}: ', end='')
+            sep = ''
+            for metric_val in val_list:
+                print(f'{sep}{metric_val:0.4f}', end='')
+                sep = ', '
+            sep = '\n\t'
+        print()
+        print('==========================================================================')
+        return
+
+    def display_eval_metrics(self):
+        print('==========================================================================')
+        print('Evaluation metrics')
+        sep = '\t'
+        for metric_name, metric_val in self._eval_metrics.items():
+            print(f'{sep}{metric_name}: {metric_val:0.4f}', end='')
+            sep = ', '
+        print()
+        print('==========================================================================')
+        return
+
+    def display_model(self):
+        print('==========================================================================')
+        print('Model summary')
+        self.model.summary()
+        print('==========================================================================')
+        return
+
     def __show_samples(self, sample_imgs, sample_labels, title: str,
                        num_rows: int = 5, num_cols: int = 5, save_plot: bool = False):
         style.use('ggplot')
@@ -304,107 +496,48 @@ class TfClassifier:
             each_ax.set_xlabel(sample_labels[each_ax_idx])
 
         if save_plot:
-            plt.savefig(os.path.join(self.model_dir, f'samples_{title}_rows_{num_rows}_cols_{num_cols}.png'))
+            plt.savefig(os.path.join(
+                self.model_dir, f'samples_{title}_rows_{num_rows}_cols_{num_cols}.png')
+            )
         else:
             plt.show()
         plt.close()
         return
 
-    def display_metrics(self):
-        if not self._eval_metrics:
-            if not self._train_history:
-                print('Model has not been trained')
-            else:
-                print('Model has not been evaluated')
-            return
-        print('==========================================================================')
-        sep = '\n\t'
-        for metric_index, metric_name in enumerate(self.model.metrics_names):
-            print(f'{sep}{metric_name}: {self._eval_metrics[metric_index]:0.4f}', end='')
-            sep = ', '
-        print()
-        print('==========================================================================')
-        test_predictions = self.model.predict(
-            self._data_splits['test']['images'], batch_size=self._train_params.batch_size
-        )
+    def __plot_train_metrics(self):
+        for metric_name in self._train_history:
+            if not metric_name.startswith('epoch') and not metric_name.startswith('val_'):
+                self.__plot_history_metric(metric_name, save_plot=True)
+        return
+
+    def __plot_test_metrics(self):
+        test_predictions = self.predict(self._data_splits['test']['images'])
         top_test_preds = [np.argmax(each_pred) for each_pred in test_predictions]
         annotate_conf = len(self.class_names) < 20
-        self.__plot_confusion_matrix(
-            y_pred=top_test_preds, y_true=self._data_splits['test']['labels'], class_labels=self.class_names,
-            title=self._train_params.target_column, annotate_entries=annotate_conf, save_plot=True
+        save_fname = os.path.join(
+            self.model_dir, f'confusion_matrix_{self._train_params.target_column}.png'
         )
-
-        for metric_name in self._train_history.params['metrics']:
-            if not metric_name.startswith('val_'):
-                self.__plot_history_metric(self._train_history, metric_name, save_plot=True)
-        print('==========================================================================')
+        plot_confusion_matrix(
+            y_pred=top_test_preds, y_true=self._data_splits['test']['labels'], class_labels=self.class_names,
+            title=self._train_params.target_column, annotate_entries=annotate_conf, save_plot=save_fname
+        )
         return
 
-    def __plot_confusion_matrix(self, y_true, y_pred, class_labels, title,
-                                cmap: str = 'Blues', annotate_entries: bool = True, save_plot: bool = False):
-        style.use('ggplot')
-        fig_title = f'Target: \'{title}\''
-        conf_mat = confusion_matrix(y_true, y_pred)
-        conf_mat = conf_mat.astype('float') / conf_mat.sum(axis=1)[:, np.newaxis]
-
-        lower_bound = np.min(y_true) - 0.5
-        upper_bound = np.max(y_true) + 0.5
-
-        fig, ax = plt.subplots()
-        im = ax.imshow(conf_mat, interpolation='nearest', cmap=cmap)
-        ax.figure.colorbar(im, ax=ax)
-
-        xtick_marks = np.arange(conf_mat.shape[1])
-        ytick_marks = np.arange(conf_mat.shape[0])
-
-        ax.set_xticks(xtick_marks)
-        ax.set_yticks(ytick_marks)
-
-        ax.set_xbound(lower=lower_bound, upper=upper_bound)
-        ax.set_ybound(lower=lower_bound, upper=upper_bound)
-        ax.invert_yaxis()
-
-        ax.set_xticklabels(class_labels)
-        ax.set_yticklabels(class_labels)
-
-        ax.set_xlabel('Predicted label')
-        ax.set_ylabel('True label')
-
-        ax.set_title(fig_title)
-        plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
-
-        if annotate_entries:
-            annot_format = '0.2f'
-            thresh = conf_mat.max() / 2.
-            for i in range(conf_mat.shape[0]):
-                for j in range(conf_mat.shape[1]):
-                    conf_entry = conf_mat[i, j]
-                    ax.text(
-                        j, i, format(conf_entry, annot_format), ha='center', va='center',
-                        color='white' if conf_entry > thresh else 'black'
-                    )
-        fig.tight_layout()
-
-        if save_plot:
-            plt.savefig(os.path.join(self.model_dir, f'confusion_matrix_{title}.png'))
-        else:
-            plt.show()
-        plt.close()
-        return
-
-    def __plot_history_metric(self, model_history, metric_name, save_plot: bool = False):
+    def __plot_history_metric(self, metric_name, save_plot: bool = False):
         style.use('ggplot')
         fig, ax = plt.subplots()
 
-        ax.plot(model_history.epoch, model_history.history[metric_name],
-                color='red', label=metric_name)
-        ax.plot(model_history.epoch, model_history.history[f'val_{metric_name}'],
-                color='black', label=f'validation {metric_name}')
+        train_vals = self._train_history[f'{metric_name}']
+        validation_vals = self._train_history[f'val_{metric_name}']
+        epoch_list = np.array(range(1, len(train_vals) + 1))
 
-        upper_y = np.max((model_history.history[metric_name], model_history.history[f'val_{metric_name}'])) * 1.2
+        ax.plot(epoch_list, train_vals, color='red', label=metric_name)
+        ax.plot(epoch_list, validation_vals, color='black', label=f'validation {metric_name}')
+
+        upper_y = np.max((train_vals, validation_vals)) * 1.2
         ax.set_ylim([0, upper_y])
 
-        ax.set_xlim([model_history.epoch[0] - 0.5, model_history.epoch[-1] + 0.5])
+        ax.set_xlim([epoch_list[0] - 0.5, epoch_list[-1] + 0.5])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
         ax.set_xlabel('Epoch')
@@ -426,9 +559,7 @@ class TfClassifier:
         plt.close()
         return
 
-    def display_model(self):
-        print('==========================================================================')
-        self.model.summary()
+    def __plot_model(self):
         """
         pip install pydot
         pip install pydotplus
@@ -436,35 +567,16 @@ class TfClassifier:
             https://www.graphviz.org/download/
             Make sure that the directory containing the dot executable is on your system's path
         """
-        keras.utils.plot_model(
-            self.model, os.path.join(self.model_dir, f'model_architecture.png'), show_shapes=True
-        )
-        print('==========================================================================')
-        return
-
-    def save_train_params(self):
-        with open(os.path.join(self.model_dir, f'metadata.json'), 'w+') as meta_file:
-            json.dump(self._train_params._asdict(), meta_file, indent=2)
-        return
-
-    def save_model(self):
-        metric_dict = {}
-        for metric_index, metric_name in enumerate(self.model.metrics_names):
-            if isinstance(self._eval_metrics[metric_index], np.float32):
-                metric_dict[metric_name] = float(self._eval_metrics[metric_index])
-            else:
-                metric_dict[metric_name] = self._eval_metrics[metric_index]
-
-        with open(os.path.join(self.model_dir, f'metrics.json'), 'w+') as metric_file:
-            json.dump(metric_dict, metric_file)
-        self.model.save(os.path.join(self.model_dir, f'model_checkpoint.h5'))
+        model_fname = os.path.join(self.model_dir, f'model_architecture.png')
+        keras.utils.plot_model(self.model, model_fname, show_shapes=True)
         return
 
 
 def main(margs):
-    display_dataset = True
+    display_dataset = False
     display_samples = False
     display_metrics = True
+    display_train_history = True
     display_model = False
     #############################################
     ds_name = margs.get('data_source', 'Physio')
@@ -472,42 +584,36 @@ def main(margs):
     subject_name = margs.get('subject_name', 'S001')
     duration_list = margs.get('duration', ['0.20'])
     interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
+    force_overwrite = margs.get('force_overwrite', False)
     #############################################
     num_epochs = margs.get('num_epochs', 20)
     batch_size = margs.get('batch_size', 16)
     learning_rate = margs.get('learning_rate', 1e-4)
-    pretrained_name = margs.get('pretrained_name', None)
     verbosity = margs.get('verbosity', 1)
-    model_id = margs.get('model_id', '0')
     img_width = margs.get('img_width', 224)
     img_height = margs.get('img_height', 224)
-
-    rand_seed = 42
     #############################################
     train_params = TrainParameters(
         data_source=ds_name, chosen_being=subject_name, target_column=target_column,
         interpolation_list=interpolation_list, window_lengths=duration_list,
-        img_width=img_width, img_height= img_height, learning_rate=learning_rate,
+        img_width=img_width, img_height=img_height, learning_rate=learning_rate,
         batch_size=batch_size, num_epochs=num_epochs
     )
+
     tf_classifier = TfClassifier(
         train_params,
-        model_id=model_id,
+        force_overwrite=force_overwrite,
         verbosity=verbosity,
-        rand_seed=rand_seed,
-        pretrained_name=pretrained_name
     )
-
-    tf_classifier.train()
-    tf_classifier.evaluate()
-    tf_classifier.save_model()
 
     if display_dataset:
         tf_classifier.display_dataset()
     if display_samples:
         tf_classifier.display_samples()
+    if display_train_history:
+        tf_classifier.display_train_history()
     if display_metrics:
-        tf_classifier.display_metrics()
+        tf_classifier.display_eval_metrics()
     if display_model:
         tf_classifier.display_model()
     return
@@ -519,8 +625,10 @@ if __name__ == '__main__':
                         help='name of the data source to use when training the model')
     parser.add_argument('--target', type=str, default='event',
                         help='target variable to be used as the class label')
-    parser.add_argument('--subject_name', type=str, default='Random',
+    parser.add_argument('--subject_name', type=str, default='S001',
                         help='Name of subject to use when training this classifier')
+    parser.add_argument('--force_overwrite', action='store_true',
+                        help='Overwrites any previously trained model that was trained using the specified parameters')
 
     parser.add_argument('--duration', type=str, nargs='+', default=['0.20'], choices=['0.20', '0.40', '0.60'],
                         help='list of window sizes to use when training the model')
@@ -540,12 +648,6 @@ if __name__ == '__main__':
                         help='learning rate to use to train the model')
     parser.add_argument('--verbosity', type=int, default=1,
                         help='verbosity level to use when reporting model updates: 0 -> off, 1-> on')
-    parser.add_argument('--model_id', type=str, default='0',
-                        help='string to use to label the model for future reference')
-
-    # parser.add_argument('--pretrained_name', type=str, default=None,
-    #                     help='name of a pretrained model used to set the base architecture and weights '
-    #                          '--do not use--')
 
     args = parser.parse_args()
     main(vars(args))

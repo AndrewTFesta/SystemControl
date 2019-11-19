@@ -10,8 +10,9 @@ from SystemControl.DataSource.LiveDataSource import MotorAction
 
 class RecordedDataSource(DataSource):
 
-    def __init__(self, subject: str = None, trial_type: str = None, log_level: str = 'CRITICAL'):
-        super().__init__(log_level)
+    def __init__(self, subject: str = None, trial_type: str = None, log_level: str = 'CRITICAL',
+                 save_method: str = 'h5'):
+        DataSource.__init__(self, log_level, save_method=save_method)
 
         self.name = 'recorded'
         self.sample_freq = 200
