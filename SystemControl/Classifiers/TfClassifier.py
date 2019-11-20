@@ -27,7 +27,6 @@ from matplotlib import style
 from matplotlib.ticker import MaxNLocator
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
-from tensorboard.compat.tensorflow_stub.errors import UnknownError
 from tensorflow import keras
 from tqdm import tqdm
 

@@ -6,10 +6,8 @@ import argparse
 import multiprocessing as mp
 import os
 import time
-from itertools import combinations, product
+from itertools import combinations
 from multiprocessing import Queue
-
-import numpy as np
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 

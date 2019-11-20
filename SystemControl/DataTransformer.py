@@ -97,6 +97,7 @@ class DataTransformer:
             desc=f'Computing images: length: {self.window_length:0.2f}, spacing: {spacing}',
             file=sys.stdout
         )
+        # todo make multiprocess
         for window in data_iter:
             window_label_str = window['label'].value_counts().idxmax()
             window_idx = window['idx'].iloc[0]
@@ -151,7 +152,7 @@ class DataTransformer:
 
 def main():
     trial_type = 'motor_imagery_right_left'
-    num_subjects = 2
+    num_subjects = -1
     subject_name = 'flat'
     save_method = 'csv'
 
