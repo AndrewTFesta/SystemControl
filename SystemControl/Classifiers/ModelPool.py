@@ -152,7 +152,7 @@ if __name__ == '__main__':
                         help='size of a training batch')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='learning rate to use to train the model')
-    parser.add_argument('--verbosity', type=int, default=1,
+    parser.add_argument('--verbosity', type=int, default=0,
                         help='verbosity level to use when reporting model updates: 0 -> off, 1-> on')
 
     args = parser.parse_args()
