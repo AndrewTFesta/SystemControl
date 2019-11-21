@@ -8,12 +8,11 @@ import os
 import time
 from itertools import combinations
 from multiprocessing import Queue
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+from signal import signal, SIGINT
 
 from SystemControl import DATA_DIR
 from SystemControl.Classifiers.TfClassifier import TrainParameters, TfClassifier, build_model_id
-from SystemControl.utilities import find_files_by_name
+from utils.utilities import find_files_by_name
 
 
 def train_model(train_params, verbosity, save_queue):
@@ -31,6 +30,10 @@ class ModelPool:
         self.train_parameters = train_parameters
         self.base_model_dir = os.path.join(DATA_DIR, 'models')
         self.model_dirs = self.build_model_metainfo()
+
+        self._training_proc = None
+        self._keep_training = True
+        self._train_result_queue = Queue()
         return
 
     def build_model_metainfo(self):
@@ -61,14 +64,20 @@ class ModelPool:
             model_id_list.append(model_id)
         return model_id_list
 
-    def train_models(self, verbosity=0):
+    def signal_handler(self, signal_received, frame):
+        self._training_proc.terminate()
+        self._keep_training = False
+        return
+
+    def train_missing_models(self, verbosity=0):
+        signal(SIGINT, self.signal_handler)
+        self._keep_training = True
+
         duration_combinations = []
         for chose_num in range(1, len(self.duration_list) + 1):
             duration_combinations.extend(list(combinations(self.duration_list, chose_num)))
 
         model_id_list = self.get_model_ids()
-        train_result_queue = Queue()
-        train_time_list = []
         for data_source in self.data_source_list:
             heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{data_source}')
             subject_names = [
@@ -79,23 +88,21 @@ class ModelPool:
             print(f'Starting training of {len(subject_names)} models')
             for each_subject in subject_names:
                 for each_duration_list in duration_combinations:
+                    if not self._keep_training:
+                        return
+
                     each_train_param = self.train_parameters._replace(
                         data_source=data_source, chosen_being=each_subject, window_lengths=each_duration_list
                     )
                     model_id = build_model_id(each_train_param)
                     if model_id not in model_id_list:
-                        start_time = time.time()
-                        proc_args = (each_train_param, verbosity, train_result_queue)
-                        train_proc = mp.Process(target=train_model, args=proc_args)
-                        train_proc.start()
-                        train_proc.join()
-                        end_time = time.time()
-                        delta_time = end_time - start_time
-                        train_time_list.append(delta_time)
-                        print(f'Time to train model: {delta_time:0.4f}')
+                        proc_args = (each_train_param, verbosity, self._train_result_queue)
+                        self._training_proc = mp.Process(target=train_model, args=proc_args)
+                        self._training_proc.start()
+                        self._training_proc.join()
                     else:
                         print(f'Model already trained:\n\t{model_id}')
-        return train_result_queue, train_time_list
+        return
 
 
 def main(margs):
@@ -117,7 +124,7 @@ def main(margs):
     )
 
     model_pool = ModelPool(data_source_list=[ds_name], duration_list=duration_list, train_parameters=train_params)
-    model_pool.train_models(verbosity=verbosity)
+    model_pool.train_missing_models(verbosity=verbosity)
     return
 
 

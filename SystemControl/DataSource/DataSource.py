@@ -3,7 +3,6 @@
 @description
 """
 import hashlib
-import json
 import os
 import time
 from collections import namedtuple
@@ -11,7 +10,7 @@ from collections import namedtuple
 import pandas as pd
 
 from SystemControl import DATA_DIR
-from SystemControl.utilities import select_skip_generator, Observable
+from utils.utilities import select_skip_generator, Observable
 
 
 def build_entry_id(data_list):
@@ -23,28 +22,6 @@ def build_entry_id(data_list):
     id_bytes = id_str.encode('utf-8')
     entry_hash = hashlib.sha3_256(id_bytes).hexdigest()
     return entry_hash
-
-
-def save_trial_data(subject_entry, start_time: float = -1, end_time: float = -1, human_readable=True):
-    subject_entry_info = subject_entry["subject_entry"]
-
-    source_name = subject_entry_info["source_name"]
-    subject_name = subject_entry_info["subject"]
-    subject_entry_id = subject_entry_info["entry_id"]
-    # todo get first sample and last sample
-    samples = subject_entry["sample_list"]
-
-    subject_entry_fname = os.path.join(DATA_DIR, source_name, subject_name, f'{subject_entry_id}.json')
-    subject_save_dir, _ = os.path.split(subject_entry_fname)
-    if not os.path.isdir(subject_save_dir):
-        os.makedirs(subject_save_dir)
-
-    with open(subject_entry_fname, 'w+') as subject_entry_file:
-        if human_readable:
-            json.dump(samples, subject_entry_file, indent=2)
-        else:
-            json.dump(samples, subject_entry_file)
-    return
 
 
 TrialInfoEntry = namedtuple('TrialInfoEntry', 'entry_id source subject trial_type trial_name')

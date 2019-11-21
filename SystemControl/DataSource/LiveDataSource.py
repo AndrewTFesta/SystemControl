@@ -8,7 +8,7 @@ import pandas as pd
 
 from SystemControl.DataSource.DataSource import DataSource, build_entry_id, TrialInfoEntry, TrialDataEntry
 from SystemControl.StimulusGenerator import MotorAction
-from SystemControl.utilities import Observer
+from utils.utilities import Observer
 
 
 class LiveDataSource(DataSource, Observer):

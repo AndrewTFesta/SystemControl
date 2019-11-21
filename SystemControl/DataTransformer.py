@@ -128,7 +128,6 @@ class DataTransformer:
     def save_heatmaps(self):
         for interp_type, image_info in self.image_lists.items():
             self.save_image_list(interp_type, image_info)
-        # todo metafile
         return
 
     @staticmethod

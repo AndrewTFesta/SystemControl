@@ -9,7 +9,7 @@ import time
 from json import JSONDecodeError
 from time import sleep
 
-from SystemControl.utilities import uv_to_volts, Observable
+from utils.utilities import uv_to_volts, Observable
 
 
 class UdpClient(Observable):

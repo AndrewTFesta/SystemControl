@@ -1,13 +1,13 @@
 todo table of comparison of different window lengths versus accuracy - boxplot with subjects as points per box
-todo ability to control in different dimensions
-todo ai ability to learn things too complex for humans
-todo plots of modelpool metrics - accuracy, num epochs, loss
+todo plots of modelpool metrics - accuracy, num epochs, loss, time to eval, time to train
+todo separate training and evaluating in model pool
 
 todo intro chapter
 todo background chapter
+        ability to control in different dimensions
+        ai ability to learn things too complex for humans
 todo design chapter
-todo experiments chapter
-todo results chapter
+todo experiments and results chapter
 todo conclusion chapter
 todo future work chapter
 

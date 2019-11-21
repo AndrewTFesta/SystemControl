@@ -1,13 +1,6 @@
 """
 @title
 @description
-
-    have to set environment variable before importing tensorflow
-
-    0 = all messages are logged (default behavior)
-    1 = INFO messages are not printed
-    2 = INFO and WARNING messages are not printed
-    3 = INFO, WARNING, and ERROR messages are not printed
 """
 import argparse
 import collections
@@ -15,8 +8,7 @@ import json
 import os
 import random
 import shutil
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import time
 
 import cv2 as cv2
 import matplotlib.pyplot as plt
@@ -31,7 +23,7 @@ from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.utilities import find_files_by_type, filter_list_of_dicts
+from utils.utilities import find_files_by_type, filter_list_of_dicts
 
 TrainParameters = collections.namedtuple(
     'TrainParameters',
@@ -184,7 +176,7 @@ class TfClassifier:
         self.model_dir = os.path.join(DATA_DIR, 'models', self.model_type, f'{self.model_id}')
         self.train_params_fname = os.path.join(self.model_dir, f'train_params.json')
         self.epoch_metrics_fname = os.path.join(self.model_dir, 'epoch_metrics.csv')
-        self.eval_metrics_fname = os.path.join(self.model_dir, f'eval_metrics.json')
+        self.triain_eval_metrics_fname = os.path.join(self.model_dir, f'train_eval_metrics.json')
         self.model_fname = os.path.join(self.model_dir, 'trained_model.hdf5')
 
         if os.path.isdir(self.model_dir) and force_overwrite:
@@ -202,7 +194,11 @@ class TfClassifier:
                 os.makedirs(self.model_dir)
 
         self._train_history = None
+        self._train_time = -1
         self._eval_metrics = None
+        self._eval_time = -1
+        self._test_predictions = None
+        self._predict_time = -1
 
         self._data_splits = None
         raw_data = self.__load_image_files()
@@ -225,11 +221,18 @@ class TfClassifier:
         return
 
     def train_and_evaluate(self):
-        self.train()
-        self.evaluate()
+        self._train_history, self._train_time = self.train(
+            self._data_splits['train']['images'], self._data_splits['train']['labels'],
+            self._data_splits['validation']['images'], self._data_splits['validation']['labels'],
+        )
+        self._eval_metrics, self._eval_time = self.evaluate(
+            self._data_splits['test']['images'], self._data_splits['test']['labels']
+        )
+        self._test_predictions, self._predict_time = self.predict(self._data_splits['test']['images'])
 
+        # todo save data splits
         self.__save_train_parameters()
-        self.__save_eval_metrics()
+        self.__save_train_eval_predict_metrics()
         self.__save_model()
 
         self.__plot_train_metrics()
@@ -308,17 +311,24 @@ class TfClassifier:
 
     def __load_epoch_history(self):
         with open(self.epoch_metrics_fname, 'r+') as epoch_history_file:
-            self._train_history = pd.read_csv(epoch_history_file)
-        return
+            epoch_history = pd.read_csv(epoch_history_file)
+        return epoch_history
 
     def __load_eval_metrics(self):
-        with open(self.eval_metrics_fname, 'r+') as metrics_file:
+        with open(self.triain_eval_metrics_fname, 'r+') as metrics_file:
             self._eval_metrics = json.load(metrics_file)
         return
 
-    def __save_eval_metrics(self):
-        with open(self.eval_metrics_fname, 'w+') as metrics_file:
-            json.dump(self._eval_metrics, metrics_file, indent=2)
+    def __save_train_eval_predict_metrics(self):
+        save_dict = {
+            'eval_metrics': self._eval_metrics,
+            'eval_time': self._eval_time,
+            'train_time': self._train_time,
+            'predict_per_image_time': self._predict_time
+        }
+
+        with open(self.triain_eval_metrics_fname, 'w+') as metrics_file:
+            json.dump(save_dict, metrics_file, indent=2)
         return
 
     def __save_train_parameters(self):
@@ -330,7 +340,7 @@ class TfClassifier:
         self.model.save(self.model_fname)
         return
 
-    def train(self):
+    def train(self, train_image_paths, train_labels, val_image_paths, val_labels):
         print(f'Starting training: {self.model_id}')
         print(f'\tdata source:       {self._train_params.data_source}')
         print(f'\tchosen_being:      {self._train_params.chosen_being}')
@@ -341,49 +351,65 @@ class TfClassifier:
         print(f'\tbatch_size:        {self._train_params.batch_size}')
         print(f'\tnum_epochs:        {self._train_params.num_epochs}')
 
-        loaded_train_images = self.__load_images(self._data_splits['train']['images'])
-        loaded_val_images = self.__load_images(self._data_splits['validation']['images'])
+        loaded_train_images = self.__load_images(train_image_paths)
+        loaded_val_images = self.__load_images(val_image_paths)
+        start_time = time.time()
         self.model.fit(
-            loaded_train_images, self._data_splits['train']['labels'],
+            loaded_train_images, train_labels,
             epochs=self._train_params.num_epochs, verbose=self._verbosity, batch_size=self._train_params.batch_size,
-            validation_data=(loaded_val_images, self._data_splits['validation']['labels']),
+            validation_data=(loaded_val_images, val_labels),
             callbacks=default_model_callbacks(
                 metric_fname=self.epoch_metrics_fname,
                 verbosity=self._verbosity,
                 save_checkpoints_file=self._save_checkpoints_fname
             ),
         )
+        end_time = time.time()
+        delta_time = end_time - start_time
+        train_time = delta_time
 
-        self.__load_epoch_history()
-        return
+        train_history = self.__load_epoch_history()
+        return train_history, train_time
 
-    def evaluate(self):
+    def evaluate(self, eval_images, eval_labels):
         print(f'Evaluating model: {self.model_id}')
         print(f'Number of test images: {len(self._data_splits["test"]["images"])}')
 
-        loaded_test_images = self.__load_images(self._data_splits['test']['images'])
+        loaded_images = self.__load_images(eval_images)
+        start_time = time.time()
         model_performance = self.model.evaluate(
-            loaded_test_images, self._data_splits['test']['labels'], verbose=0
+            loaded_images, eval_labels, verbose=0
         )
-        self._eval_metrics = {
+
+        eval_metrics = {
             metric_name: float(model_performance[metric_index])
             for metric_index, metric_name in enumerate(self.model.metrics_names)
         }
-        return
+        end_time = time.time()
+        delta_time = end_time - start_time
+        eval_time = delta_time
+        return eval_metrics, eval_time
 
-    def predict(self, image_list):
+    def predict(self, image_paths):
         print(f'Predicting using model: {self.model_id}')
-        print(f'Number of predictions: {len(image_list)}')
+        print(f'Number of predictions: {len(image_paths)}')
 
-        if isinstance(image_list, pd.Series):
-            if isinstance(image_list.iloc[-1], str):
-                image_list = self.__load_images(image_list)
+        loaded_images = None
+        if isinstance(image_paths, pd.Series):
+            if isinstance(image_paths.iloc[-1], str):
+                loaded_images = self.__load_images(image_paths)
         else:
-            if isinstance(image_list[-1], str):
-                image_list = self.__load_images(image_list)
+            if isinstance(image_paths[-1], str):
+                loaded_images = self.__load_images(image_paths)
+            else:
+                raise TypeError(f'Unrecognized type for image paths: {type(image_paths)}')
 
-        model_predictions = self.model.predict(image_list)
-        return model_predictions
+        start_time = time.time()
+        model_predictions = self.model.predict(loaded_images)
+        end_time = time.time()
+        delta_time = end_time - start_time
+        predict_time = delta_time / len(loaded_images)
+        return model_predictions, predict_time
 
     def display_dataset(self):
         train_event_counts = pd.Series(self._data_splits['train']['labels']).value_counts()
@@ -510,8 +536,8 @@ class TfClassifier:
         return
 
     def __plot_test_metrics(self):
-        test_predictions = self.predict(self._data_splits['test']['images'])
-        top_test_preds = [np.argmax(each_pred) for each_pred in test_predictions]
+        # self._test_predictions = self.predict(self._data_splits['test']['images'])
+        top_test_preds = [np.argmax(each_pred) for each_pred in self._test_predictions]
         annotate_conf = len(self.class_names) < 20
         save_fname = os.path.join(
             self.model_dir, f'confusion_matrix_{self._train_params.target_column}.png'
