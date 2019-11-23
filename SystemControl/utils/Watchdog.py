@@ -3,22 +3,33 @@
 @description
 """
 import os
-import time
+import threading
+from time import sleep
 
 import psutil
 
 
 class Watchdog:
 
-    def __init__(self):
-        self.reg_list = []
+    def __init__(self, timeout):
+        self.timeout = timeout
 
-        self.timeout = -1
-        self.update_time = -1
+        self.watching = None
+        self.watchdog_thread = None
+        self.timer_thread = None
+        self._running = False
         return
 
-    def _ping(self):
-        self.update_time = time.time()
+    def run(self):
+        self.watchdog_thread = threading.Thread(target=self.__start_watchdog_timer, args=(), daemon=True)
+        self.watchdog_thread.start()
+        self._running = True
+        return
+
+    def ping(self):
+        if self._running:
+            self.timer_thread.cancel()
+            print('ping received')
         return
 
     @staticmethod
@@ -27,21 +38,34 @@ class Watchdog:
         return curr_gp_times
 
     def register(self, to_watch):
-        self.reg_list.append(to_watch)
+        self.watching = to_watch
+        return
+
+    def __start_watchdog_timer(self):
+        while self._running:
+            self.timer_thread = threading.Timer(self.timeout, self.kill_watch)
+            self.timer_thread.start()
+            self.timer_thread.join()
+        print('stopping timer')
+        return
+
+    def kill_watch(self):
+        print(f'timeout exceeded: {self.timeout}\n\tkilling watchdog')
+        self._running = False
         return
 
 
 class FilesystemWatchdog(Watchdog):
 
-    def __init__(self):
-        Watchdog.__init__(self)
+    def __init__(self, timeout):
+        Watchdog.__init__(self, timeout)
         return
 
 
 class ProcessWatchdog(Watchdog):
 
-    def __init__(self):
-        Watchdog.__init__(self)
+    def __init__(self, timeout):
+        Watchdog.__init__(self, timeout)
         return
 
     @staticmethod
@@ -58,6 +82,25 @@ class ProcessWatchdog(Watchdog):
 
 class ThreadWatchdog(Watchdog):
 
-    def __init__(self):
-        Watchdog.__init__(self)
+    def __init__(self, timeout):
+        Watchdog.__init__(self, timeout)
         return
+
+
+def main():
+    timeout = 2
+
+    watchdog = Watchdog(timeout)
+    watchdog.run()
+    sleep(1)
+    watchdog.ping()
+    sleep(1)
+    watchdog.ping()
+    sleep(1)
+    watchdog.ping()
+    sleep(5)
+    return
+
+
+if __name__ == '__main__':
+    main()

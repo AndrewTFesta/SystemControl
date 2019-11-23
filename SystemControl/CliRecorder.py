@@ -48,7 +48,7 @@ class CliRecorder:
 
         self.running = True
 
-        print('Starting key logger and random action deisplay threads...')
+        print('Starting key logger and random action display threads...')
         self.rec_thread.start()
         self.rand_act_thread.start()
 

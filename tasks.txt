@@ -6,13 +6,12 @@ todo intro chapter
 todo background chapter
         ability to control in different dimensions
         ai ability to learn things too complex for humans
-todo design chapter
+todo approach chapter
 todo experiments and results chapter
 todo conclusion chapter
 todo future work chapter
 
 todo add running classifier to visualizer
-todo catch sigkill and save data
 todo recording sessions obci
 
 todo docs
@@ -26,6 +25,8 @@ todo log udpclient
 todo log stimulus generator
 todo log tfclassifier
 todo datasource contain instance of datatransformer
+todo watchdog for monitoring training
+todo watchdog for monitoring eeg stream
 
 todo    explore frequency domain
             fft

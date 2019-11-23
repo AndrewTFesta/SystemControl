@@ -8,12 +8,14 @@ import json
 import os
 import random
 import shutil
+import sys
 import time
 
 import cv2 as cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 
 from matplotlib import style
 from matplotlib.ticker import MaxNLocator
@@ -161,6 +163,12 @@ class TfClassifier:
         self._train_params = train_params
         self._verbosity = verbosity
 
+        gpu_list = tf.config.experimental.list_physical_devices('GPU')
+        if gpu_list:
+            for gpu in gpu_list:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            tf.config.experimental.set_visible_devices(gpu_list[-1], 'GPU')
+
         heatmap_dir = os.path.join(
             DATA_DIR, 'heatmaps',
             f'data_source_{self._train_params.data_source}',
@@ -208,13 +216,15 @@ class TfClassifier:
 
         self.model = load_model(self.model_fname)
         if self.model:
-            print('prev model found')
+            if self._verbosity > 0:
+                print('prev model found')
 
             # todo handle case where loading info fails for some reason (reset model?)
             self.__load_epoch_history()
             self.__load_eval_metrics()
         else:
-            print('no prev model found')
+            if self._verbosity > 0:
+                print('no prev model found')
             filtered_x, filtered_y = self.__filter_data_entries(raw_data)
             self._data_splits = split_data(filtered_x, filtered_y)
             self.model = self.__build_new_model()
@@ -285,7 +295,12 @@ class TfClassifier:
     def __load_image_files(self):
         img_files = find_files_by_type('png', self.dataset_directory)
         data_list = []
-        for each_file in tqdm(img_files, desc='Reading dataset directory hierarchy'):
+
+        pbar = None
+        if self._verbosity > 0:
+            pbar = tqdm(img_files, desc='Reading dataset directory hierarchy', file=sys.stdout)
+
+        for each_file in img_files:
             file_parts = each_file.split(os.path.sep)
             param_dict = {
                 '_'.join(part.split('_')[:-1]): part.split('_')[-1]
@@ -294,17 +309,29 @@ class TfClassifier:
             }
             param_dict["path"] = each_file
             data_list.append(param_dict)
+            if self._verbosity > 0:
+                pbar.update(1)
+        if self._verbosity > 0:
+            pbar.close()
         return data_list
 
     def __load_images(self, img_paths):
+        pbar = None
+        if self._verbosity > 0:
+            pbar = tqdm(img_paths, desc=f'Loading images', file=sys.stdout)
+
         img_list = []
-        for each_path in tqdm(img_paths, desc=f'Loading images'):
+        for each_path in img_paths:
             img = cv2.imread(each_path)
             img_width = self._train_params.img_width if self._train_params.img_width > 0 else img.shape(1)
             img_height = self._train_params.img_height if self._train_params.img_height > 0 else img.shape(0)
             img_dims = (img_width, img_height)
             img = cv2.resize(img, img_dims)
             img_list.append(img)
+            if self._verbosity > 0:
+                pbar.update(1)
+        if self._verbosity > 0:
+            pbar.close()
         np_images = np.asarray(img_list)
         np_images = np_images / 255.0
         return np_images
@@ -341,15 +368,16 @@ class TfClassifier:
         return
 
     def train(self, train_image_paths, train_labels, val_image_paths, val_labels):
-        print(f'Starting training: {self.model_id}')
-        print(f'\tdata source:       {self._train_params.data_source}')
-        print(f'\tchosen_being:      {self._train_params.chosen_being}')
-        print(f'\ttarget_column:     {self._train_params.target_column}')
-        print(f'\tinterpolation:     {self._train_params.interpolation_list}')
-        print(f'\twindow size:       {self._train_params.window_lengths}')
-        print(f'\tlearning_rate:     {self._train_params.learning_rate:0.6f}')
-        print(f'\tbatch_size:        {self._train_params.batch_size}')
-        print(f'\tnum_epochs:        {self._train_params.num_epochs}')
+        if self._verbosity > 0:
+            print(f'Starting training: {self.model_id}')
+            print(f'\tdata source:       {self._train_params.data_source}')
+            print(f'\tchosen_being:      {self._train_params.chosen_being}')
+            print(f'\ttarget_column:     {self._train_params.target_column}')
+            print(f'\tinterpolation:     {self._train_params.interpolation_list}')
+            print(f'\twindow size:       {self._train_params.window_lengths}')
+            print(f'\tlearning_rate:     {self._train_params.learning_rate:0.6f}')
+            print(f'\tbatch_size:        {self._train_params.batch_size}')
+            print(f'\tnum_epochs:        {self._train_params.num_epochs}')
 
         loaded_train_images = self.__load_images(train_image_paths)
         loaded_val_images = self.__load_images(val_image_paths)
@@ -372,8 +400,9 @@ class TfClassifier:
         return train_history, train_time
 
     def evaluate(self, eval_images, eval_labels):
-        print(f'Evaluating model: {self.model_id}')
-        print(f'Number of test images: {len(self._data_splits["test"]["images"])}')
+        if self._verbosity > 0:
+            print(f'Evaluating model: {self.model_id}')
+            print(f'Number of test images: {len(self._data_splits["test"]["images"])}')
 
         loaded_images = self.__load_images(eval_images)
         start_time = time.time()
@@ -391,8 +420,9 @@ class TfClassifier:
         return eval_metrics, eval_time
 
     def predict(self, image_paths):
-        print(f'Predicting using model: {self.model_id}')
-        print(f'Number of predictions: {len(image_paths)}')
+        if self._verbosity > 0:
+            print(f'Predicting using model: {self.model_id}')
+            print(f'Number of predictions: {len(image_paths)}')
 
         loaded_images = None
         if isinstance(image_paths, pd.Series):
@@ -536,7 +566,6 @@ class TfClassifier:
         return
 
     def __plot_test_metrics(self):
-        # self._test_predictions = self.predict(self._data_splits['test']['images'])
         top_test_preds = [np.argmax(each_pred) for each_pred in self._test_predictions]
         annotate_conf = len(self.class_names) < 20
         save_fname = os.path.join(
@@ -630,6 +659,8 @@ def main(margs):
         force_overwrite=force_overwrite,
         verbosity=verbosity,
     )
+
+    tf_classifier.train_and_evaluate()
 
     if display_dataset:
         tf_classifier.display_dataset()

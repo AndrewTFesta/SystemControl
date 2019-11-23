@@ -3,16 +3,24 @@
 @description
 """
 import argparse
+import json
 import multiprocessing as mp
 import os
+import sys
 import time
 from itertools import combinations
 from multiprocessing import Queue
 from signal import signal, SIGINT
 
+import matplotlib.pyplot as plt
+from matplotlib import style
+from tqdm import tqdm
+
 from SystemControl import DATA_DIR
 from SystemControl.Classifiers.TfClassifier import TrainParameters, TfClassifier, build_model_id
 from utils.utilities import find_files_by_name
+
+style.use('ggplot')
 
 
 def train_model(train_params, verbosity, save_queue):
@@ -22,14 +30,67 @@ def train_model(train_params, verbosity, save_queue):
     return
 
 
+def sort_windows(window_entry):
+    window_len_str = window_entry[0]
+    window_parts = window_len_str.split('-')
+    window_val = 0
+    for part in window_parts:
+        window_val += int(part) * len(window_parts)
+    return window_val
+
+
+def plot_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str):
+    data = sorted(data_dict.items(), key=sort_windows)
+    x_labels = [entry[0] for entry in data]
+    y_vals = [entry[1] for entry in data]
+
+    fig = plt.figure(facecolor='black')
+    axes = fig.add_subplot(1, 1, 1)
+
+    box_plot = axes.boxplot(y_vals, patch_artist=True)
+
+    for box in box_plot['boxes']:
+        box.set(color='#7570b3', linewidth=2)
+        box.set(facecolor='#1b9e77')
+
+    for whisker in box_plot['whiskers']:
+        whisker.set(color='#7570b3', linewidth=2)
+
+    for cap in box_plot['caps']:
+        cap.set(color='#7570b3', linewidth=2)
+
+    for median in box_plot['medians']:
+        median.set(color='#b2df8a', linewidth=2)
+
+    for flier in box_plot['fliers']:
+        flier.set(marker='o', color='#e7298a', alpha=0.5)
+
+    axes.set_xticklabels(x_labels)
+    axes.get_xaxis().tick_bottom()
+    axes.get_yaxis().tick_left()
+
+    axes.set_title(fig_title)
+    axes.set_xlabel(x_title)
+    axes.set_ylabel(y_title)
+
+    save_dir = os.path.join(DATA_DIR, 'metric_plots')
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
+    plot_fname = os.path.join(save_dir, f'{fig_title}.png')
+    plt.savefig(plot_fname)
+    plt.close(0)
+    return
+
+
 class ModelPool:
 
-    def __init__(self, data_source_list: list, duration_list: list, train_parameters: TrainParameters):
-        self.data_source_list = data_source_list
+    def __init__(self, data_source: str, duration_list: list, train_parameters: TrainParameters):
+        self.data_source = data_source
         self.duration_list = duration_list
         self.train_parameters = train_parameters
         self.base_model_dir = os.path.join(DATA_DIR, 'models')
         self.model_dirs = self.build_model_metainfo()
+        self.model_metrics = {}
 
         self._training_proc = None
         self._keep_training = True
@@ -42,19 +103,129 @@ class ModelPool:
         model_info_list = []
         for model_name in trained_model_names:
             model_dir = os.path.dirname(model_name)
-            model_info_list.append(model_dir)
+            model_id = os.path.basename(model_dir)
+            model_ds = model_id.split('_')[0]
+
+            if model_ds == self.data_source and self.__validate_model_dir(model_dir):
+                model_info_list.append(model_dir)
         end_time = time.time()
         print(f'Time to find trained models: {end_time - start_time:0.4f}')
         print(f'Found {len(trained_model_names)} trained models')
         return model_info_list
 
-    def __validate_model_dir(self, model_dir):
-        return
+    @staticmethod
+    def __validate_model_dir(model_dir):
+        req_files = {
+            'epoch_metrics',
+            'trained_model',
+            'train_eval_metrics',
+            'train_params'
+        }
+        mdl_files = {
+            os.path.splitext(each_file)[0]
+            for each_file in os.listdir(model_dir)
+        }
+        missing_files = req_files.difference(mdl_files)
+        is_valid = len(missing_files) == 0
+        return is_valid
+
+    def build_model_train_eval_metrics(self):
+        eval_dict = {}
+        start_time = time.time()
+        eval_file_list = find_files_by_name('train_eval_metrics', self.base_model_dir)
+        for eval_file in eval_file_list:
+            model_dir = os.path.dirname(eval_file)
+            model_id = os.path.basename(model_dir)
+            model_id_parts = model_id.split('_')
+            model_ds = model_id_parts[0]
+            model_subject = model_id_parts[1]
+            model_window_str = str(model_id_parts[-3])
+
+            if model_ds == self.data_source:
+                with open(eval_file, 'r+') as metric_file:
+                    metric_data = json.load(metric_file)
+                if model_window_str not in eval_dict:
+                    eval_dict[model_window_str] = {}
+                eval_dict[model_window_str][model_subject] = metric_data
+        end_time = time.time()
+        print(f'Time to find trained models: {end_time - start_time:0.4f}')
+        print(f'Found {len(eval_file_list)} trained models')
+        self.model_metrics = eval_dict
+        return eval_dict
 
     def plot_metrics(self):
+        self.plot_train_time()
+        self.plot_eval_time()
+        self.plot_predict_time()
+        self.plot_test_accuracy()
         return
 
-    def save_metrics_csv(self):
+    def plot_train_time(self):
+        data = {}
+        for window_len, window_entry in self.model_metrics.items():
+            for subject_name, subject_entry in window_entry.items():
+                train_time = subject_entry['train_time']
+                if window_len not in data:
+                    data[window_len] = []
+                data[window_len].append(train_time)
+
+        plot_boxplot(
+            data_dict=data,
+            fig_title='Train time vs Window lengths',
+            x_title='Window lengths (s)',
+            y_title='Train time (s)'
+        )
+        return
+
+    def plot_eval_time(self):
+        data = {}
+        for window_len, window_entry in self.model_metrics.items():
+            for subject_name, subject_entry in window_entry.items():
+                eval_time = subject_entry['eval_time']
+                if window_len not in data:
+                    data[window_len] = []
+                data[window_len].append(eval_time)
+
+        plot_boxplot(
+            data_dict=data,
+            fig_title='Evaluation time vs Window lengths',
+            x_title='Window lengths (s)',
+            y_title='Evaluation time (s)'
+        )
+        return
+
+    def plot_predict_time(self):
+        data = {}
+        for window_len, window_entry in self.model_metrics.items():
+            for subject_name, subject_entry in window_entry.items():
+                pred_time = subject_entry['predict_per_image_time']
+                if window_len not in data:
+                    data[window_len] = []
+                data[window_len].append(pred_time)
+
+        plot_boxplot(
+            data_dict=data,
+            fig_title='Prediction time per image vs Window lengths',
+            x_title='Window lengths (s)',
+            y_title='Prediction time per image (s)'
+        )
+        return
+
+    def plot_test_accuracy(self):
+        data = {}
+        for window_len, window_entry in self.model_metrics.items():
+            for subject_name, subject_entry in window_entry.items():
+                test_acc = subject_entry['eval_metrics']['sparse_categorical_accuracy']
+                if window_len not in data:
+                    data[window_len] = []
+                data[window_len].append(test_acc)
+
+        plot_boxplot(
+            data_dict=data,
+            fig_title='Test accuracy vs Window lengths',
+            x_title='Window lengths (s)',
+            y_title='Test accuracy (s)'
+        )
         return
 
     def get_model_ids(self):
@@ -78,30 +249,30 @@ class ModelPool:
             duration_combinations.extend(list(combinations(self.duration_list, chose_num)))
 
         model_id_list = self.get_model_ids()
-        for data_source in self.data_source_list:
-            heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{data_source}')
-            subject_names = [
-                subject_dir.split('_')[-1]
-                for subject_dir in os.listdir(heatmap_dir)
-                if os.path.isdir(os.path.join(heatmap_dir, subject_dir))
-            ]
-            print(f'Starting training of {len(subject_names)} models')
-            for each_subject in subject_names:
-                for each_duration_list in duration_combinations:
-                    if not self._keep_training:
-                        return
+        heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{self.data_source}')
+        subject_names = sorted([
+            subject_dir.split('_')[-1]
+            for subject_dir in os.listdir(heatmap_dir)
+            if os.path.isdir(os.path.join(heatmap_dir, subject_dir))
+        ])
 
-                    each_train_param = self.train_parameters._replace(
-                        data_source=data_source, chosen_being=each_subject, window_lengths=each_duration_list
-                    )
-                    model_id = build_model_id(each_train_param)
-                    if model_id not in model_id_list:
-                        proc_args = (each_train_param, verbosity, self._train_result_queue)
-                        self._training_proc = mp.Process(target=train_model, args=proc_args)
-                        self._training_proc.start()
-                        self._training_proc.join()
-                    else:
-                        print(f'Model already trained:\n\t{model_id}')
+        pbar = tqdm(total=len(subject_names) * len(duration_combinations) - len(model_id_list), file=sys.stdout)
+        for each_subject in subject_names:
+            for each_duration_list in duration_combinations:
+                if not self._keep_training:
+                    return
+                each_train_param = self.train_parameters._replace(
+                    data_source=self.data_source, chosen_being=each_subject, window_lengths=each_duration_list
+                )
+                model_id = build_model_id(each_train_param)
+                pbar.set_description(f'{model_id}', refresh=True)
+                if model_id not in model_id_list:
+                    proc_args = (each_train_param, verbosity, self._train_result_queue)
+                    self._training_proc = mp.Process(target=train_model, args=proc_args)
+                    self._training_proc.start()
+                    self._training_proc.join()
+                    pbar.update(1)
+        pbar.close()
         return
 
 
@@ -123,8 +294,10 @@ def main(margs):
         batch_size=batch_size, num_epochs=num_epochs
     )
 
-    model_pool = ModelPool(data_source_list=[ds_name], duration_list=duration_list, train_parameters=train_params)
+    model_pool = ModelPool(data_source=ds_name, duration_list=duration_list, train_parameters=train_params)
     model_pool.train_missing_models(verbosity=verbosity)
+    model_pool.build_model_train_eval_metrics()
+    model_pool.plot_metrics()
     return
 
 
