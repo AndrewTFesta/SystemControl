@@ -35,7 +35,7 @@ from mne.io import read_raw_edf
 from tqdm import tqdm
 
 from SystemControl.DataSource.DataSource import DataSource, build_entry_id, TrialInfoEntry, TrialDataEntry
-from utils.utilities import download_large_file, unzip_file, find_files_by_type, idx_to_time
+from SystemControl.utils.utilities import download_large_file, unzip_file, find_files_by_type, idx_to_time
 
 DEBUG = False
 

@@ -70,8 +70,6 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
 
-    # https://pytorch.org/get-started/locally/
-    # pip3 install torch===1.3.0 torchvision===0.4.1 -f https://download.pytorch.org/whl/torch_stable.html
     install_requires=requirements_list,
     dependency_links=[
         'https://github.com/pyvista/pyvista/tarball/master',
