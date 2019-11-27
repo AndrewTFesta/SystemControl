@@ -39,13 +39,15 @@ def sort_windows(window_entry):
     return window_val
 
 
-def plot_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str):
+def plot_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str,
+                 fig_width: int = 12, fig_height: int = 12):
     data = sorted(data_dict.items(), key=sort_windows)
     x_labels = [entry[0] for entry in data]
     y_vals = [entry[1] for entry in data]
 
-    fig = plt.figure(facecolor='black')
+    fig = plt.figure(figsize=(fig_width, fig_height), facecolor='black')
     axes = fig.add_subplot(1, 1, 1)
+    fig.subplots_adjust(left=0.2, bottom=0.2)
 
     box_plot = axes.boxplot(y_vals, patch_artist=True)
 
@@ -65,7 +67,7 @@ def plot_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str):
     for flier in box_plot['fliers']:
         flier.set(marker='o', color='#e7298a', alpha=0.5)
 
-    axes.set_xticklabels(x_labels)
+    axes.set_xticklabels(x_labels, rotation=90)
     axes.get_xaxis().tick_bottom()
     axes.get_yaxis().tick_left()
 
@@ -76,7 +78,7 @@ def plot_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str):
     save_dir = os.path.join(DATA_DIR, 'metric_plots')
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
-    plot_fname = os.path.join(save_dir, f'{fig_title}.png')
+    plot_fname = os.path.join(save_dir, f"{fig_title.replace(' ', '_')}.png")
     plt.savefig(plot_fname)
     plt.close(0)
     return
@@ -279,7 +281,7 @@ class ModelPool:
 def main(margs):
     ds_name = margs.get('data_source', 'Physio')
     target_column = margs.get('target', 'event')
-    duration_list = ['0.20', '0.40', '0.60']
+    duration_list = ['0.20', '0.40', '0.60', '0.80', '1.00']
     interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
     num_epochs = margs.get('num_epochs', 20)
     batch_size = margs.get('batch_size', 16)

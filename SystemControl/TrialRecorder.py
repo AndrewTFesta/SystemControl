@@ -19,7 +19,7 @@ from win32api import GetSystemMetrics
 from SystemControl import IMAGES_DIR
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.LiveDataSource import MotorAction
-from utils.utilities import Observer
+from utils.Observer import Observer
 
 matplotlib.use('TkAgg')
 style.use('ggplot')

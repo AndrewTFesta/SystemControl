@@ -10,7 +10,8 @@ from collections import namedtuple
 import pandas as pd
 
 from SystemControl import DATA_DIR
-from utils.utilities import select_skip_generator, Observable
+from utils.Observable import Observable
+from utils.utilities import select_skip_generator
 
 
 def build_entry_id(data_list):
@@ -94,9 +95,10 @@ class DataSource(Observable):
         for sample in downsampled:
             yield sample
 
-    def window_generator(self, window_length: float, spacing: float):
+    def window_generator(self, window_length: float, window_overlap: float):
         window_start = 0
         window_end = window_length
+        window_offset = (1 - window_overlap) * window_length
 
         trial_samples_list = self.get_trial_samples()
         for trial_samples in trial_samples_list:
@@ -107,8 +109,8 @@ class DataSource(Observable):
                     (trial_samples['timestamp'] >= window_start) &
                     (trial_samples['timestamp'] <= window_end)
                     ]
-                window_start += spacing
-                window_end += spacing
+                window_start += window_offset
+                window_end += window_offset
                 yield next_window
         return
 

@@ -2,7 +2,7 @@
 @title
 @description
 """
-from utils.Observer import Observer
+from utils import Observer
 
 
 class Observable:
@@ -31,7 +31,7 @@ class Observable:
         return
 
     def subscribe(self, subscriber):
-        if isinstance(subscriber, Observer):
+        if isinstance(subscriber, Observer.Observer):
             self.subscriber_list.append(subscriber)
         else:
             print(f'Subscriber is not a valid Observer: {subscriber}')

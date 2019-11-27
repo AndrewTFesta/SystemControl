@@ -35,8 +35,10 @@ TrainParameters = collections.namedtuple(
 
 
 def build_model_id(train_params: TrainParameters):
+    window_lens = [str(int(float(each_len) * 100)) for each_len in train_params.window_lengths]
+    window_str = '-'.join(window_lens)
+
     interp_str = '-'.join(train_params.interpolation_list)
-    window_str = '-'.join(train_params.window_lengths).replace('0.', '')
     model_str = f'{train_params.data_source}_{train_params.chosen_being}_{train_params.target_column}_' \
                 f'{interp_str}_{window_str}_{train_params.img_width}w_{train_params.img_height}h'
     return model_str

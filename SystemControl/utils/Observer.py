@@ -2,7 +2,7 @@
 @title
 @description
 """
-from utils.Observable import Observable
+from utils import Observable
 
 
 class Observer:
@@ -10,7 +10,7 @@ class Observer:
     def __init__(self, sub_list: list):
         self.subscriptions = []
         for each_sub in sub_list:
-            if isinstance(each_sub, Observable):
+            if isinstance(each_sub, Observable.Observable):
                 self.subscriptions.append(each_sub)
                 each_sub.subscribe(self)
         return
