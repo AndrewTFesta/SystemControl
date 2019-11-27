@@ -2,15 +2,26 @@
 @title
 @description
 """
+import matplotlib.pyplot as plt
+import mne
+import numpy as np
+from mne import concatenate_raws, events_from_annotations, pick_types, Epochs
+from mne.channels import read_layout
+from mne.datasets.eegbci import eegbci
+from mne.decoding import CSP
+from mne.io import read_raw_edf
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.model_selection import cross_val_score, ShuffleSplit
+from sklearn.pipeline import Pipeline
 
 
-def generate_csp_dataset(data_source: DataSource, subject: str):
+def generate_csp_dataset(subject: int):
     mne.set_log_level('CRITICAL')  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
     # # Set parameters and read data
     # avoid classification of evoked responses by using epochs that start 1s after cue onset.
     tmin, tmax = -1., 4.
     event_id = dict(hands=2, feet=3)
-    subject = 1  # todo check for each subject
+    subject = subject  # todo check for each subject
     runs = [6, 10, 14]  # motor imagery: hands vs feet
 
     raw_fnames = eegbci.load_data(subject, runs)
@@ -33,7 +44,6 @@ def generate_csp_dataset(data_source: DataSource, subject: str):
     labels = epochs.events[:, -1] - 2
 
     # # Define a monte-carlo cross-validation generator (reduce variance):
-    scores = []
     epochs_data = epochs.get_data()
     epochs_data_train = epochs_train.get_data()
     cv = ShuffleSplit(10, test_size=0.2, random_state=42)
@@ -50,7 +60,7 @@ def generate_csp_dataset(data_source: DataSource, subject: str):
     # Printing the results
     class_balance = np.mean(labels == labels[0])
     class_balance = max(class_balance, 1. - class_balance)
-    print("Classification accuracy: %f / Chance level: %f" % (np.mean(scores), class_balance))
+    print(f"Classification accuracy: {np.mean(scores):0.4f} / Chance level: {class_balance:0.4f}")
 
     # plot CSP patterns estimated on full data for visualization
     csp.fit_transform(epochs_data, labels)
@@ -97,6 +107,9 @@ def generate_csp_dataset(data_source: DataSource, subject: str):
 
 
 def main():
+    subject_list = list(range(1, 110))
+    for each_subject in subject_list:
+        generate_csp_dataset(each_subject)
     return
 
 

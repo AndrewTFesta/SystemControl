@@ -24,9 +24,10 @@ todo log trialrecorder
 todo log udpclient
 todo log stimulus generator
 todo log tfclassifier
-todo datasource contain instance of datatransformer
 todo watchdog for monitoring training
 todo watchdog for monitoring eeg stream
+todo datasource contain instance of datatransformer
+todo datasource store timesteps - 3d struct with additional flag for type of point (extrapolated vs recorded)
 
 todo    explore frequency domain
             fft
