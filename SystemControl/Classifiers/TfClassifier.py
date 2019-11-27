@@ -25,7 +25,7 @@ from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from utils.utilities import find_files_by_type, filter_list_of_dicts
+from SystemControl.utils.utilities import filter_list_of_dicts, find_files_by_type
 
 TrainParameters = collections.namedtuple(
     'TrainParameters',

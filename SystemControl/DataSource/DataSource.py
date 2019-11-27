@@ -10,7 +10,8 @@ from collections import namedtuple
 import pandas as pd
 
 from SystemControl import DATA_DIR
-from utils.utilities import select_skip_generator, Observable
+from SystemControl.utils.Observer import Observable
+from SystemControl.utils.utilities import select_skip_generator
 
 
 def build_entry_id(data_list):
@@ -30,7 +31,7 @@ TrialDataEntry = namedtuple('TrialDataEntry', 'entry_id idx timestamp label C3 C
 
 class DataSource(Observable):
 
-    def __init__(self, log_level: str = 'WARNING', save_method: str = 'h5'):
+    def __init__(self, log_level: str = 'WARNING', save_method: str = 'csv'):
         Observable.__init__(self)
         self._log_level = log_level
         self.save_method = save_method

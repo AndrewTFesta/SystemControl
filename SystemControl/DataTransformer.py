@@ -13,6 +13,7 @@ import matplotlib
 import matplotlib.cm
 import numpy as np
 from matplotlib import style
+import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
@@ -57,6 +58,20 @@ def interpolate_row(row_sample: np.ndarray, num_rows: int, interp_type: Interpol
     interp_func = interp1d(x, each_sample, fill_value='extrapolate', kind=interp_str)
     new_y = interp_func(xnew)
     return new_y
+
+
+def plot_interpolation(xnew, ynew, interp_type):
+    fig = plt.figure(figsize=(12, 12))
+    axes = fig.add_subplot(1, 1, 1)
+    axes.plot(xnew, ynew, color='navy')
+
+    axes.set_title(f'{interp_type.name} interpolation of signal')
+    axes.set_xlabel('X-range')
+    axes.set_ylabel('Interpolated values')
+
+    plt.show()
+    plt.close()
+    return
 
 
 def img_id(data_entry: np.ndarray):

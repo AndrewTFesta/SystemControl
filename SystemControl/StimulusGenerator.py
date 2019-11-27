@@ -8,7 +8,7 @@ import time
 from enum import Enum
 from time import sleep
 
-from utils.utilities import Observable
+from SystemControl.utils.Observer import Observable
 
 
 class MotorAction(Enum):
@@ -101,7 +101,9 @@ def main():
     stimulus_generator = StimulusGenerator(
         delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
     )
-    live_ds = LiveDataSource(subscriber_list=[stimulus_generator], subject=subject_name, trial_type=trial_type)
+    live_ds = LiveDataSource(
+        subscriber_list=[stimulus_generator], subject=subject_name, trial_type=trial_type, save_method='csv'
+    )
 
     stimulus_generator.run()
     sleep(run_time)
