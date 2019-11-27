@@ -10,7 +10,7 @@ from collections import namedtuple
 import pandas as pd
 
 from SystemControl import DATA_DIR
-from SystemControl.utils.Observer import Observable
+from SystemControl.utils.ObserverObservable import Observable
 from SystemControl.utils.utilities import select_skip_generator
 
 

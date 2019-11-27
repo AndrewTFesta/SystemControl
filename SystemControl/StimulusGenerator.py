@@ -8,7 +8,7 @@ import time
 from enum import Enum
 from time import sleep
 
-from SystemControl.utils.Observer import Observable
+from SystemControl.utils.ObserverObservable import Observable
 
 
 class MotorAction(Enum):

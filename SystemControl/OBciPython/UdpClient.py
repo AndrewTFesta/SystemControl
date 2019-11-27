@@ -9,7 +9,7 @@ import time
 from json import JSONDecodeError
 from time import sleep
 
-from SystemControl.utils.Observer import Observable
+from SystemControl.utils.ObserverObservable import Observable
 from SystemControl.utils.utilities import uv_to_volts
 
 
