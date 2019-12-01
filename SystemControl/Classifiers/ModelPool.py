@@ -6,26 +6,22 @@ import argparse
 import json
 import multiprocessing as mp
 import os
-import sys
 import time
 from itertools import combinations
 from multiprocessing import Queue
 from signal import signal, SIGINT
 
 import matplotlib.pyplot as plt
-from matplotlib import style
-from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.Classifiers.TfClassifier import TrainParameters, TfClassifier, build_model_id
-from utils.utilities import find_files_by_name
-
-style.use('ggplot')
+from SystemControl.Classifiers.TfClassifier import TrainParameters, TfClassifier
+from SystemControl.utils.Misc import find_files_by_name
 
 
 def train_model(train_params, verbosity, save_queue):
     tf_classifier = TfClassifier(train_params, force_overwrite=True, verbosity=verbosity)
     tf_classifier.train_and_evaluate()
+    tf_classifier.display_eval_metrics()
     save_queue.put(tf_classifier.model_fname)
     return
 
@@ -39,48 +35,65 @@ def sort_windows(window_entry):
     return window_val
 
 
+def sort_metric_files(metric_fname):
+    model_dir = os.path.dirname(metric_fname)
+    model_id = os.path.basename(model_dir)
+    model_id_parts = model_id.split('_')
+
+    model_window_str = str(model_id_parts[-3])
+    model_window_parts = model_window_str.split('-')
+    return len(model_window_parts), int(model_window_parts[0])
+
+
 def plot_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str,
                  fig_width: int = 12, fig_height: int = 12):
-    data = sorted(data_dict.items(), key=sort_windows)
-    x_labels = [entry[0] for entry in data]
-    y_vals = [entry[1] for entry in data]
+    data_dict = sorted(data_dict.items(), key=sort_windows)
+    x_labels = [entry[0] for entry in data_dict]
+    y_vals = [entry[1] for entry in data_dict]
 
-    fig = plt.figure(figsize=(fig_width, fig_height), facecolor='black')
-    axes = fig.add_subplot(1, 1, 1)
-    fig.subplots_adjust(left=0.2, bottom=0.2)
-
+    fig, axes = plt.subplots(figsize=(fig_width, fig_height), facecolor='black')
     box_plot = axes.boxplot(y_vals, patch_artist=True)
 
     for box in box_plot['boxes']:
-        box.set(color='#7570b3', linewidth=2)
-        box.set(facecolor='#1b9e77')
+        box.set(color='xkcd:darkblue', linewidth=1)
+        box.set(facecolor='xkcd:coral')
 
     for whisker in box_plot['whiskers']:
-        whisker.set(color='#7570b3', linewidth=2)
+        whisker.set(color='xkcd:grey', linewidth=1)
 
     for cap in box_plot['caps']:
-        cap.set(color='#7570b3', linewidth=2)
+        cap.set(color='xkcd:indigo', linewidth=2)
 
     for median in box_plot['medians']:
-        median.set(color='#b2df8a', linewidth=2)
+        median.set(color='xkcd:crimson', linewidth=2)
 
     for flier in box_plot['fliers']:
-        flier.set(marker='o', color='#e7298a', alpha=0.5)
+        flier.set(marker='o', color='xkcd:orchid', alpha=0.2)
 
-    axes.set_xticklabels(x_labels, rotation=90)
+    axes.set_xticklabels(x_labels, rotation=90, size=18)
+    axes.tick_params(axis='y', labelcolor='k', labelsize=18)
+
     axes.get_xaxis().tick_bottom()
     axes.get_yaxis().tick_left()
 
-    axes.set_title(fig_title)
-    axes.set_xlabel(x_title)
-    axes.set_ylabel(y_title)
+    axes.set_title(fig_title, size=24)
+    axes.set_xlabel(x_title, size=24)
+    axes.set_ylabel(y_title, size=24)
+
+    for xtick in axes.get_xticklabels():
+        xtick.set_color('k')
+        text_str = xtick.get_text()
+        if '20' in text_str:
+            xtick.set_backgroundcolor('y')
+
+    fig.tight_layout()
 
     save_dir = os.path.join(DATA_DIR, 'metric_plots')
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
     plot_fname = os.path.join(save_dir, f"{fig_title.replace(' ', '_')}.png")
     plt.savefig(plot_fname)
-    plt.close(0)
+    plt.close()
     return
 
 
@@ -134,7 +147,7 @@ class ModelPool:
     def build_model_train_eval_metrics(self):
         eval_dict = {}
         start_time = time.time()
-        eval_file_list = find_files_by_name('train_eval_metrics', self.base_model_dir)
+        eval_file_list = sorted(find_files_by_name('train_eval_metrics', self.base_model_dir), key=sort_metric_files)
         for eval_file in eval_file_list:
             model_dir = os.path.dirname(eval_file)
             model_id = os.path.basename(model_dir)
@@ -226,7 +239,7 @@ class ModelPool:
             data_dict=data,
             fig_title='Test accuracy vs Window lengths',
             x_title='Window lengths (s)',
-            y_title='Test accuracy (s)'
+            y_title='Test accuracy (%)'
         )
         return
 
@@ -258,7 +271,6 @@ class ModelPool:
             if os.path.isdir(os.path.join(heatmap_dir, subject_dir))
         ])
 
-        pbar = tqdm(total=len(subject_names) * len(duration_combinations) - len(model_id_list), file=sys.stdout)
         for each_subject in subject_names:
             for each_duration_list in duration_combinations:
                 if not self._keep_training:
@@ -266,22 +278,21 @@ class ModelPool:
                 each_train_param = self.train_parameters._replace(
                     data_source=self.data_source, chosen_being=each_subject, window_lengths=each_duration_list
                 )
-                model_id = build_model_id(each_train_param)
-                pbar.set_description(f'{model_id}', refresh=True)
+                model_id = TfClassifier.build_model_id(each_train_param)
                 if model_id not in model_id_list:
                     proc_args = (each_train_param, verbosity, self._train_result_queue)
+
                     self._training_proc = mp.Process(target=train_model, args=proc_args)
                     self._training_proc.start()
                     self._training_proc.join()
-                    pbar.update(1)
-        pbar.close()
+                    self._training_proc.close()
         return
 
 
 def main(margs):
     ds_name = margs.get('data_source', 'Physio')
     target_column = margs.get('target', 'event')
-    duration_list = ['0.20', '0.40', '0.60', '0.80', '1.00']
+    duration_list = ['0.20', '0.40', '0.60']
     interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
     num_epochs = margs.get('num_epochs', 20)
     batch_size = margs.get('batch_size', 16)
@@ -321,13 +332,13 @@ if __name__ == '__main__':
     parser.add_argument('--img_height', type=int, default=224,
                         help='height to resize each image to before feeding to the model')
 
-    parser.add_argument('--num_epochs', type=int, default=20,
+    parser.add_argument('--num_epochs', type=int, default=200,
                         help='maximum number of epochs over which to train the model')
     parser.add_argument('--batch_size', type=int, default=16,
                         help='size of a training batch')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='learning rate to use to train the model')
-    parser.add_argument('--verbosity', type=int, default=0,
+    parser.add_argument('--verbosity', type=int, default=1,
                         help='verbosity level to use when reporting model updates: 0 -> off, 1-> on')
 
     args = parser.parse_args()

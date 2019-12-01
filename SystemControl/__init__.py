@@ -28,8 +28,8 @@ have to set environment variable before importing tensorflow
 3 = INFO, WARNING, and ERROR messages are not printed
 '''
 
-TENSORFLOW_LOG_LEVEL = '2'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = TENSORFLOW_LOG_LEVEL
+# TENSORFLOW_LOG_LEVEL = '2'
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = TENSORFLOW_LOG_LEVEL
 
 
 def __init_dirs() -> None:

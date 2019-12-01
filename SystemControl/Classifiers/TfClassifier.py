@@ -16,16 +16,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-
 from matplotlib import style
 from matplotlib.ticker import MaxNLocator
-from sklearn.metrics import confusion_matrix
-from sklearn.model_selection import train_test_split
 from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.utils.utilities import filter_list_of_dicts, find_files_by_type
+from SystemControl.utils.MachineLearning import split_data, plot_confusion_matrix
+from SystemControl.utils.Misc import filter_list_of_dicts, find_files_by_type
 
 TrainParameters = collections.namedtuple(
     'TrainParameters',
@@ -34,131 +32,13 @@ TrainParameters = collections.namedtuple(
 )
 
 
-def build_model_id(train_params: TrainParameters):
-    window_lens = [str(int(float(each_len) * 100)) for each_len in train_params.window_lengths]
-    window_str = '-'.join(window_lens)
-
-    interp_str = '-'.join(train_params.interpolation_list)
-    model_str = f'{train_params.data_source}_{train_params.chosen_being}_{train_params.target_column}_' \
-                f'{interp_str}_{window_str}_{train_params.img_width}w_{train_params.img_height}h'
-    return model_str
-
-
-def default_model_metrics():
-    metrics_list = [
-        keras.metrics.SparseCategoricalAccuracy(),
-    ]
-    return metrics_list
-
-
-def default_model_callbacks(metric_fname, verbosity, save_checkpoints_file: str = None):
-    fit_callbacks = [
-        keras.callbacks.EarlyStopping(
-            monitor='val_loss', verbose=verbosity, patience=3, mode='auto', restore_best_weights=True
-        ),
-        keras.callbacks.CSVLogger(filename=metric_fname, separator=',', append=True)
-    ]
-    if save_checkpoints_file:
-        fit_callbacks.append(keras.callbacks.ModelCheckpoint(
-            filepath=save_checkpoints_file, monitor='val_loss', verbose=verbosity, mode='auto',
-            save_weights_only=False, save_best_only=True
-        ))
-    return fit_callbacks
-
-
-def default_model_optimizer(lr):
-    optimizer = keras.optimizers.Adam(lr=lr)
-    return optimizer
-
-
-def default_model_loss():
-    loss_func = keras.losses.SparseCategoricalCrossentropy()
-    return loss_func
-
-
-def load_model(model_fname):
-    model = None
-    if os.path.isfile(model_fname):
-        model = keras.models.load_model(model_fname)
-    return model
-
-
-def plot_confusion_matrix(y_true, y_pred, class_labels, title,
-                          cmap: str = 'Blues', annotate_entries: bool = True, save_plot: str = None):
-    style.use('ggplot')
-    fig_title = f'Target: \'{title}\''
-    conf_mat = confusion_matrix(y_true, y_pred)
-    conf_mat = conf_mat.astype('float') / conf_mat.sum(axis=1)[:, np.newaxis]
-
-    lower_bound = np.min(y_true) - 0.5
-    upper_bound = np.max(y_true) + 0.5
-
-    fig, ax = plt.subplots()
-    im = ax.imshow(conf_mat, interpolation='nearest', cmap=cmap)
-    ax.figure.colorbar(im, ax=ax)
-
-    xtick_marks = np.arange(conf_mat.shape[1])
-    ytick_marks = np.arange(conf_mat.shape[0])
-
-    ax.set_xticks(xtick_marks)
-    ax.set_yticks(ytick_marks)
-
-    ax.set_xbound(lower=lower_bound, upper=upper_bound)
-    ax.set_ybound(lower=lower_bound, upper=upper_bound)
-    ax.invert_yaxis()
-
-    ax.set_xticklabels(class_labels)
-    ax.set_yticklabels(class_labels)
-
-    ax.set_xlabel('Predicted label')
-    ax.set_ylabel('True label')
-
-    ax.set_title(fig_title)
-    plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
-
-    if annotate_entries:
-        annot_format = '0.2f'
-        thresh = conf_mat.max() / 2.
-        for i in range(conf_mat.shape[0]):
-            for j in range(conf_mat.shape[1]):
-                conf_entry = conf_mat[i, j]
-                ax.text(
-                    j, i, format(conf_entry, annot_format), ha='center', va='center',
-                    color='white' if conf_entry > thresh else 'black'
-                )
-    fig.tight_layout()
-
-    if save_plot:
-        plt.savefig(save_plot)
-    else:
-        plt.show()
-    plt.close()
-    return
-
-
-def split_data(data, targets, test_size=0.25, val_size=0.15):
-    train_val_x, test_x, train_val_y, test_y = train_test_split(
-        data, targets, test_size=test_size
-    )
-
-    train_x, val_x, train_y, val_y = train_test_split(
-        train_val_x, train_val_y, test_size=val_size
-    )
-
-    data_dict = {
-        'train': {'images': train_x, 'labels': train_y.to_numpy()},
-        'validation': {'images': val_x, 'labels': val_y.to_numpy()},
-        'test': {'images': test_x, 'labels': test_y.to_numpy()},
-    }
-    return data_dict
-
-
 class TfClassifier:
 
     @property
     def model_type(self):
         return 'cnn'
 
+    # noinspection PyUnresolvedReferences
     def __init__(self, train_params: TrainParameters, *,
                  save_checkpoints: bool = False, force_overwrite: bool = False, verbosity: int = 1):
 
@@ -182,7 +62,7 @@ class TfClassifier:
                 raise ValueError(f'Dataset directory not found: {duration_data_dir}')
 
         self.dataset_directory = heatmap_dir
-        self.model_id = build_model_id(train_params)
+        self.model_id = self.build_model_id(train_params)
         self.model_dir = os.path.join(DATA_DIR, 'models', self.model_type, f'{self.model_id}')
         self.train_params_fname = os.path.join(self.model_dir, f'train_params.json')
         self.epoch_metrics_fname = os.path.join(self.model_dir, 'epoch_metrics.csv')
@@ -216,7 +96,7 @@ class TfClassifier:
             np.unique([each_entry[self._train_params.target_column] for each_entry in raw_data])
         )
 
-        self.model = load_model(self.model_fname)
+        self.model = self.load_keras_model(self.model_fname)
         if self.model:
             if self._verbosity > 0:
                 print('prev model found')
@@ -231,6 +111,55 @@ class TfClassifier:
             self._data_splits = split_data(filtered_x, filtered_y)
             self.model = self.__build_new_model()
         return
+
+    @staticmethod
+    def build_model_id(train_params: TrainParameters):
+        window_lens = [str(int(float(each_len) * 100)) for each_len in train_params.window_lengths]
+        window_str = '-'.join(window_lens)
+
+        interp_str = '-'.join(train_params.interpolation_list)
+        model_str = f'{train_params.data_source}_{train_params.chosen_being}_{train_params.target_column}_' \
+                    f'{interp_str}_{window_str}_{train_params.img_width}w_{train_params.img_height}h'
+        return model_str
+
+    @staticmethod
+    def load_keras_model(model_fname):
+        model = None
+        if os.path.isfile(model_fname):
+            model = keras.models.load_model(model_fname)
+        return model
+
+    @staticmethod
+    def default_model_metrics():
+        metrics_list = [
+            keras.metrics.SparseCategoricalAccuracy(),
+        ]
+        return metrics_list
+
+    @staticmethod
+    def default_model_callbacks(metric_fname, verbosity, save_checkpoints_file: str = None):
+        fit_callbacks = [
+            keras.callbacks.EarlyStopping(
+                monitor='val_loss', verbose=verbosity, patience=3, mode='auto', restore_best_weights=True
+            ),
+            keras.callbacks.CSVLogger(filename=metric_fname, separator=',', append=True)
+        ]
+        if save_checkpoints_file:
+            fit_callbacks.append(keras.callbacks.ModelCheckpoint(
+                filepath=save_checkpoints_file, monitor='val_loss', verbose=verbosity, mode='auto',
+                save_weights_only=False, save_best_only=True
+            ))
+        return fit_callbacks
+
+    @staticmethod
+    def default_model_optimizer(lr):
+        optimizer = keras.optimizers.Adam(lr=lr)
+        return optimizer
+
+    @staticmethod
+    def default_model_loss():
+        loss_func = keras.losses.SparseCategoricalCrossentropy()
+        return loss_func
 
     def train_and_evaluate(self):
         self._train_history, self._train_time = self.train(
@@ -269,9 +198,9 @@ class TfClassifier:
         model.add(keras.layers.Dense(num_classes, activation='sigmoid'))
 
         model.compile(
-            optimizer=default_model_optimizer(self._train_params.learning_rate),
-            loss=default_model_loss(),
-            metrics=default_model_metrics()
+            optimizer=self.default_model_optimizer(self._train_params.learning_rate),
+            loss=self.default_model_loss(),
+            metrics=self.default_model_metrics()
         )
         return model
 
@@ -388,7 +317,7 @@ class TfClassifier:
             loaded_train_images, train_labels,
             epochs=self._train_params.num_epochs, verbose=self._verbosity, batch_size=self._train_params.batch_size,
             validation_data=(loaded_val_images, val_labels),
-            callbacks=default_model_callbacks(
+            callbacks=self.default_model_callbacks(
                 metric_fname=self.epoch_metrics_fname,
                 verbosity=self._verbosity,
                 save_checkpoints_file=self._save_checkpoints_fname
@@ -637,7 +566,7 @@ def main(margs):
     #############################################
     ds_name = margs.get('data_source', 'Physio')
     target_column = margs.get('target', 'event')
-    subject_name = margs.get('subject_name', 'S001')
+    subject_name = margs.get('subject_name', 'S003')
     duration_list = margs.get('duration', ['0.20'])
     interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
     force_overwrite = margs.get('force_overwrite', False)

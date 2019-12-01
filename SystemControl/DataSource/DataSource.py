@@ -11,7 +11,7 @@ import pandas as pd
 
 from SystemControl import DATA_DIR
 from SystemControl.utils.ObserverObservable import Observable
-from SystemControl.utils.utilities import select_skip_generator
+from SystemControl.utils.Misc import select_skip_generator
 
 
 def build_entry_id(data_list):
