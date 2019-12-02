@@ -74,7 +74,7 @@ class LiveDataSource(DataSource, Observer):
             change_message = {
                 'time': time.time(),
                 'type': 'sample',
-                'data': {'C3': 0, 'Cz': 0, 'C4': 0},
+                'data': {'C3': sample_data[0], 'Cz': sample_data[1], 'C4': sample_data[2]},
             }
             self.set_changed_message(change_message)
         return

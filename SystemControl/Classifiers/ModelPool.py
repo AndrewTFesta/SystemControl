@@ -12,6 +12,7 @@ from multiprocessing import Queue
 from signal import signal, SIGINT
 
 import matplotlib.pyplot as plt
+from matplotlib import style
 
 from SystemControl import DATA_DIR
 from SystemControl.Classifiers.TfClassifier import TrainParameters, TfClassifier
@@ -45,8 +46,9 @@ def sort_metric_files(metric_fname):
     return len(model_window_parts), int(model_window_parts[0])
 
 
-def plot_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str,
-                 fig_width: int = 12, fig_height: int = 12):
+def plot_model_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str,
+                       fig_width: int = 12, fig_height: int = 12):
+    style.use('ggplot')
     data_dict = sorted(data_dict.items(), key=sort_windows)
     x_labels = [entry[0] for entry in data_dict]
     y_vals = [entry[1] for entry in data_dict]
@@ -184,7 +186,7 @@ class ModelPool:
                     data[window_len] = []
                 data[window_len].append(train_time)
 
-        plot_boxplot(
+        plot_model_boxplot(
             data_dict=data,
             fig_title='Train time vs Window lengths',
             x_title='Window lengths (s)',
@@ -201,7 +203,7 @@ class ModelPool:
                     data[window_len] = []
                 data[window_len].append(eval_time)
 
-        plot_boxplot(
+        plot_model_boxplot(
             data_dict=data,
             fig_title='Evaluation time vs Window lengths',
             x_title='Window lengths (s)',
@@ -218,7 +220,7 @@ class ModelPool:
                     data[window_len] = []
                 data[window_len].append(pred_time)
 
-        plot_boxplot(
+        plot_model_boxplot(
             data_dict=data,
             fig_title='Prediction time per image vs Window lengths',
             x_title='Window lengths (s)',
@@ -235,7 +237,7 @@ class ModelPool:
                     data[window_len] = []
                 data[window_len].append(test_acc)
 
-        plot_boxplot(
+        plot_model_boxplot(
             data_dict=data,
             fig_title='Test accuracy vs Window lengths',
             x_title='Window lengths (s)',
