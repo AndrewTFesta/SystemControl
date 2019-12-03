@@ -195,7 +195,7 @@ class TfClassifier:
         # dense layers
         model.add(keras.layers.Flatten())
         model.add(keras.layers.Dense(64, activation='relu'))
-        model.add(keras.layers.Dense(num_classes, activation='sigmoid'))
+        model.add(keras.layers.Dense(num_classes, activation='softmax'))
 
         model.compile(
             optimizer=self.default_model_optimizer(self._train_params.learning_rate),

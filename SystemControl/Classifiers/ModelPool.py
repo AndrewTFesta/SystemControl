@@ -8,6 +8,7 @@ import multiprocessing as mp
 import os
 import time
 from itertools import combinations
+from json import JSONDecodeError
 from multiprocessing import Queue
 from signal import signal, SIGINT
 
@@ -159,11 +160,14 @@ class ModelPool:
             model_window_str = str(model_id_parts[-3])
 
             if model_ds == self.data_source:
-                with open(eval_file, 'r+') as metric_file:
-                    metric_data = json.load(metric_file)
-                if model_window_str not in eval_dict:
-                    eval_dict[model_window_str] = {}
-                eval_dict[model_window_str][model_subject] = metric_data
+                try:
+                    with open(eval_file, 'r+') as metric_file:
+                        metric_data = json.load(metric_file)
+                    if model_window_str not in eval_dict:
+                        eval_dict[model_window_str] = {}
+                    eval_dict[model_window_str][model_subject] = metric_data
+                except JSONDecodeError as jde:
+                    print(f'Failed to decode file: {eval_file}\n\t{jde}')
         end_time = time.time()
         print(f'Time to find trained models: {end_time - start_time:0.4f}')
         print(f'Found {len(eval_file_list)} trained models')
@@ -287,21 +291,20 @@ class ModelPool:
                     self._training_proc = mp.Process(target=train_model, args=proc_args)
                     self._training_proc.start()
                     self._training_proc.join()
-                    self._training_proc.close()
         return
 
 
 def main(margs):
     ds_name = margs.get('data_source', 'Physio')
     target_column = margs.get('target', 'event')
-    duration_list = ['0.20', '0.40', '0.60']
+    duration_list = ['0.20', '0.40', '0.60', '0.80', '1.00']
     interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
     num_epochs = margs.get('num_epochs', 20)
-    batch_size = margs.get('batch_size', 16)
+    batch_size = margs.get('batch_size', 64)
     learning_rate = margs.get('learning_rate', 1e-4)
     img_width = margs.get('img_width', 224)
     img_height = margs.get('img_height', 224)
-    verbosity = margs.get('verbosity', 0)
+    verbosity = margs.get('verbosity', 1)
     train_params = TrainParameters(
         data_source=None, chosen_being=None, window_lengths=None,
         interpolation_list=interpolation_list, target_column=target_column,
@@ -310,7 +313,7 @@ def main(margs):
     )
 
     model_pool = ModelPool(data_source=ds_name, duration_list=duration_list, train_parameters=train_params)
-    model_pool.train_missing_models(verbosity=verbosity)
+    # model_pool.train_missing_models(verbosity=verbosity)
     model_pool.build_model_train_eval_metrics()
     model_pool.plot_metrics()
     return
@@ -323,8 +326,8 @@ if __name__ == '__main__':
     parser.add_argument('--target', type=str, default='event',
                         help='target variable to be used as the class label')
 
-    parser.add_argument('--duration', type=str, nargs='+', default=['0.20', '0.40', '0.60'],
-                        choices=['0.20', '0.40', '0.60'],
+    parser.add_argument('--duration', type=str, nargs='+', default=['0.20', '0.40', '0.60', '0.80', '1.00'],
+                        choices=['0.20', '0.40', '0.60', '0.80', '1.00'],
                         help='list of window sizes to use when training the model')
     parser.add_argument('--interpolation', type=str, nargs='+', default=['LINEAR', 'QUADRATIC', 'CUBIC'],
                         choices=['LINEAR', 'QUADRATIC', 'CUBIC'],
@@ -336,7 +339,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--num_epochs', type=int, default=200,
                         help='maximum number of epochs over which to train the model')
-    parser.add_argument('--batch_size', type=int, default=16,
+    parser.add_argument('--batch_size', type=int, default=32,
                         help='size of a training batch')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='learning rate to use to train the model')

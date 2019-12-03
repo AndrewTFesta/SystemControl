@@ -1,16 +1,4 @@
-todo table of comparison of different window lengths versus accuracy - boxplot with subjects as points per box
-todo plots of modelpool metrics - accuracy, num epochs, loss, time to eval, time to train
 todo separate training and evaluating in model pool
-
-todo intro chapter
-todo background chapter
-        ability to control in different dimensions
-        ai ability to learn things too complex for humans
-todo approach chapter
-todo experiments and results chapter
-todo conclusion chapter
-todo future work chapter
-
 todo add running classifier to visualizer
 todo recording sessions obci
 
@@ -34,5 +22,7 @@ todo    explore frequency domain
         csp dataset nme
         filter erratic eeg data
         rebuild bad signal
+            ica
         apply baseline to signal to try to normalize signal
         apply anr and pnr to try and remove noise
+        callibration routine

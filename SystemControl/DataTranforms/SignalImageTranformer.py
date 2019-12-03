@@ -97,14 +97,14 @@ def sort_windows(window_entry):
     return window_len
 
 
-def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str,
+def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str, subject_name: str,
                         fig_width: int = 12, fig_height: int = 12):
     style.use('ggplot')
     data_dict = sorted(data_dict.items(), key=sort_windows)
     x_labels = [entry[0] for entry in data_dict]
     y_vals = [entry[1] for entry in data_dict]
 
-    fig, axes = plt.subplots(figsize=(fig_width, fig_height), facecolor='black')
+    fig, axes = plt.subplots(figsize=(fig_width, fig_height))
     box_plot = axes.boxplot(y_vals, patch_artist=True)
 
     for box in box_plot['boxes']:
@@ -125,6 +125,7 @@ def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: 
 
     axes.set_xticklabels(x_labels, rotation=90, size=18)
     axes.tick_params(axis='y', labelcolor='k', labelsize=18)
+    axes.set_ylim(bottom=0, top=0.12)
 
     axes.get_xaxis().tick_bottom()
     axes.get_yaxis().tick_left()
@@ -133,15 +134,47 @@ def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: 
     axes.set_xlabel(x_title, size=24)
     axes.set_ylabel(y_title, size=24)
 
-    for xtick in axes.get_xticklabels():
-        xtick.set_color('k')
-        text_str = xtick.get_text()
-        if '20' in text_str:
-            xtick.set_backgroundcolor('y')
-
     fig.tight_layout()
 
-    save_dir = os.path.join(DATA_DIR, 'timing_plots')
+    save_dir = os.path.join(DATA_DIR, 'timing_plots', subject_name)
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
+    plot_fname = os.path.join(save_dir, f"{fig_title}.png")
+
+    plot_fname = plot_fname.replace(' ', '_')
+    plot_fname = plot_fname.replace(':', '_')
+
+    plt.savefig(plot_fname)
+    plt.close()
+    return
+
+
+def plot_size_scatter(data_dict: dict, fig_title: str, x_title: str, y_title: str,
+                      fig_width: int = 12, fig_height: int = 12):
+    style.use('ggplot')
+    data_dict = sorted(data_dict.items(), key=sort_windows)
+    x_labels = [entry[0] for entry in data_dict]
+    y_vals = [entry[1] for entry in data_dict]
+
+    fig, axes = plt.subplots(figsize=(fig_width, fig_height))
+    axes.plot(x_labels, y_vals, 'g')
+    axes.scatter(x_labels, y_vals, marker='o', color='b')
+
+    axes.set_axisbelow(True)
+    axes.minorticks_on()
+
+    axes.grid(which='major', linestyle='-', linewidth='0.5', color='red')
+
+    axes.tick_params(axis='y', labelcolor='k', labelsize=18)
+    axes.tick_params(which='both', top='off', left='off', right='off', bottom='off')
+
+    axes.set_xticklabels(x_labels, rotation=90, size=18)
+    axes.set_title(fig_title, size=24)
+    axes.set_xlabel(x_title, size=24)
+    axes.set_ylabel(y_title, size=24)
+
+    fig.tight_layout()
+    save_dir = os.path.join(DATA_DIR, 'dataset_size_plots')
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
     plot_fname = os.path.join(save_dir, f"{fig_title}.png")
@@ -158,7 +191,7 @@ class DataTransformer:
 
     def __init__(self, data_source: DataSource):
         self.data_source = data_source
-        self.cmap = matplotlib.cm.get_cmap(CMAP.Reds.name)
+        self.cmap = matplotlib.cm.get_cmap(CMAP.gist_heat.name)
 
         self.subject_dir = None
         self.window_dir = None
@@ -235,6 +268,8 @@ class DataTransformer:
         )
         # todo make multiprocess
         time_dict = {'image_count': 0}
+        for interp_type in Interpolation:
+            time_dict[interp_type.name] = []
         for window in data_iter:
             window_label_str = window['label'].value_counts().idxmax()
             window_idx = window['idx'].iloc[0]
@@ -248,8 +283,6 @@ class DataTransformer:
                     cv_image = self.heatmap_from_window(window, interp_type)
                     end_time = time.time()
                     delta_time = end_time - start_time
-                    if interp_type.name not in time_dict:
-                        time_dict[interp_type.name] = []
                     time_dict[interp_type.name].append(delta_time)
                     time_dict['image_count'] += 1
                     img_entry = {"idx": window_idx, "event": window_label_str, "image": cv_image}
@@ -260,28 +293,57 @@ class DataTransformer:
         pbar.close()
 
         time_metric_fname = os.path.join(self.window_dir, f'heatmap_timings.json')
-        with open(time_metric_fname, 'w+') as metrics_file:
-            json.dump(time_dict, metrics_file)
+        if os.path.isfile(time_metric_fname):
+            with open(time_metric_fname, 'r+') as timing_file:
+                timing_info = json.load(timing_file)
+            time_dict['image_count'] += timing_info['image_count']
+            for interp_type in Interpolation:
+                img_timings = timing_info[interp_type.name]
+                time_dict[interp_type.name].extend(img_timings)
+        with open(time_metric_fname, 'w+') as timing_file:
+            json.dump(time_dict, timing_file, indent=2)
         return img_lists
 
     def plot_subject_timings(self):
         timing_fname_list = find_files_by_name('heatmap_timings', self.subject_dir)
-        timing_windows_dict = {}
+        timing_windows_dict = {
+            interp_type.name: {}
+            for interp_type in Interpolation
+        }
         for timing_fname in timing_fname_list:
             with open(timing_fname, 'r+') as timing_file:
                 timing_dict = json.load(timing_file)
             window_length = os.path.basename(os.path.dirname(timing_fname)).split('_')[-1]
             for interp_type in Interpolation:
-                timing_windows_dict[interp_type.name] = {window_length: timing_dict[interp_type.name]}
+                timing_windows_dict[interp_type.name][window_length] = timing_dict[interp_type.name]
 
         for interp_type in Interpolation:
             plot_title = f'Time to compute {interp_type.name.lower()} signal images: {self.data_source.ascended_being}'
             plot_timing_boxplot(
                 timing_windows_dict[interp_type.name],
                 fig_title=plot_title,
-                x_title='Window lengths (s)',
-                y_title='Time per image (s)'
+                x_title='Window length (s)',
+                y_title='Time per image (s)',
+                subject_name=self.data_source.ascended_being
             )
+        return
+
+    def plot_dataset_size(self):
+        timing_fname_list = find_files_by_name('heatmap_timings', self.subject_dir)
+        window_count_dict = {}
+        for timing_fname in timing_fname_list:
+            with open(timing_fname, 'r+') as timing_file:
+                timing_dict = json.load(timing_file)
+            window_length = os.path.basename(os.path.dirname(timing_fname)).split('_')[-1]
+            window_count_dict[window_length] = timing_dict['image_count']
+
+        plot_title = f'Number of signal images: {self.data_source.ascended_being}'
+        plot_size_scatter(
+            window_count_dict,
+            fig_title=plot_title,
+            x_title='Window length (s)',
+            y_title='Number of images (s)'
+        )
         return
 
     def heatmap_from_window(self, window, interp_type):
@@ -310,7 +372,7 @@ def main():
     trial_type = 'motor_imagery_right_left'
     num_subjects = -1
     subject_name = 'flat'
-    save_method = 'csv'
+    save_method = 'h5'
     ############################################
 
     data_source = PhysioDataSource(subject=None, trial_type=trial_type, save_method=save_method)
@@ -347,6 +409,7 @@ def main():
         for subject_name in tqdm(subject_list):
             data_transformer.set_subject(subject_name)
             data_transformer.plot_subject_timings()
+            data_transformer.plot_dataset_size()
     return
 
 
