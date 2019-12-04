@@ -10,7 +10,7 @@ from SystemControl import TrialRecorder
 def main():
     rec_type = 'disconnected'
     mult_rec_args = {
-        'record_length': 720,
+        'record_length': 120,
         'subject_name': None,
         'session_type': 'motor_imagery_right_left',
         'stimulus_delay': 5,

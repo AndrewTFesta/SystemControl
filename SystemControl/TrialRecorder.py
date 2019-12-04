@@ -147,14 +147,13 @@ def main(margs):
     from SystemControl.StimulusGenerator import StimulusGenerator, GeneratorType
     from SystemControl.DataSource.LiveDataSource import LiveDataSource
     ################################################
-    record_length = margs.get('record_length', 720)
+    record_length = margs.get('record_length', 120)
     current_subject = margs.get('subject_name', 'random')
     trial_type = margs.get('session_type', 'motor_imagery_right_left')
     generate_delay = margs.get('stimulus_delay', 5)
     jitter_generator = margs.get('jitter', 0.2)
     ################################################
     verbosity = 0
-    save_method = 'csv'
     ################################################
 
     stimulus_generator = StimulusGenerator(
@@ -179,7 +178,7 @@ def main(margs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Perform a single recording session.')
-    parser.add_argument('--record_length', type=int, default=720,
+    parser.add_argument('--record_length', type=int, default=120,
                         help='length (in seconds) of how long to record for the session')
     parser.add_argument('--subject_name', type=str, default='random',
                         help='Name of subject to use when saving this session')
