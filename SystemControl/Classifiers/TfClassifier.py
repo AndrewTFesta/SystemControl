@@ -234,11 +234,14 @@ class TfClassifier:
         for each_file in img_files:
             file_parts = each_file.split(os.path.sep)
             param_dict = {
-                '_'.join(part.split('_')[:-1]): part.split('_')[-1]
-                for part in file_parts
-                if len(part.split('_')) > 1
+                'data_source': file_parts[-6].split('_')[-1],
+                'subject': '_'.join(file_parts[-5].split('_')[1:]),
+                'window_length': file_parts[-4].split('_')[-1],
+                'interpolation': file_parts[-3].split('_')[-1],
+                'event': file_parts[-2].split('_')[-1],
+                "path": each_file
             }
-            param_dict["path"] = each_file
+
             data_list.append(param_dict)
             if self._verbosity > 0:
                 pbar.update(1)
@@ -258,7 +261,10 @@ class TfClassifier:
             img_height = self._train_params.img_height if self._train_params.img_height > 0 else img.shape(0)
             img_dims = (img_width, img_height)
             img = cv2.resize(img, img_dims)
-            img_list.append(img)
+            if img is not None:
+                img_list.append(img)
+            else:
+                print('Image is None')
             if self._verbosity > 0:
                 pbar.update(1)
         if self._verbosity > 0:
@@ -571,7 +577,7 @@ def main(margs):
     interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
     force_overwrite = margs.get('force_overwrite', False)
     #############################################
-    num_epochs = margs.get('num_epochs', 20)
+    num_epochs = margs.get('num_epochs', 200)
     batch_size = margs.get('batch_size', 16)
     learning_rate = margs.get('learning_rate', 1e-4)
     verbosity = margs.get('verbosity', 1)
@@ -617,17 +623,18 @@ if __name__ == '__main__':
     parser.add_argument('--force_overwrite', action='store_true',
                         help='Overwrites any previously trained model that was trained using the specified parameters')
 
-    parser.add_argument('--duration', type=str, nargs='+', default=['0.20'], choices=['0.20', '0.40', '0.60'],
+    parser.add_argument('--duration', type=str, nargs='+', default=['0.20'],
+                        choices=['0.20', '0.40', '0.60', '0.8', '1.00'],
                         help='list of window sizes to use when training the model')
     parser.add_argument('--interpolation', type=str, nargs='+', default=['LINEAR', 'QUADRATIC', 'CUBIC'],
                         choices=['LINEAR', 'QUADRATIC', 'CUBIC'],
-                        help='list of window sizes to use when training the model')
+                        help='list of interpolation types to use when training the model')
     parser.add_argument('--img_width', type=int, default=224,
                         help='width to resize each image to before feeding to the model')
     parser.add_argument('--img_height', type=int, default=224,
                         help='height to resize each image to before feeding to the model')
 
-    parser.add_argument('--num_epochs', type=int, default=20,
+    parser.add_argument('--num_epochs', type=int, default=200,
                         help='maximum number of epochs over which to train the model')
     parser.add_argument('--batch_size', type=int, default=16,
                         help='size of a training batch')

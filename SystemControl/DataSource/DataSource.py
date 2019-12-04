@@ -103,7 +103,7 @@ class DataSource(Observable):
                 next_window = trial_samples.loc[
                     (trial_samples['timestamp'] >= window_start) &
                     (trial_samples['timestamp'] <= window_end)
-                    ]
+                ]
                 window_start += window_offset
                 window_end += window_offset
                 yield next_window

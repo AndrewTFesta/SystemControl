@@ -47,12 +47,13 @@ def sort_metric_files(metric_fname):
     return len(model_window_parts), int(model_window_parts[0])
 
 
-def plot_model_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str,
+def plot_model_boxplot(data_dict: dict, data_source: str, fig_title: str, x_title: str, y_title: str,
                        fig_width: int = 12, fig_height: int = 12):
     style.use('ggplot')
     data_dict = sorted(data_dict.items(), key=sort_windows)
     x_labels = [entry[0] for entry in data_dict]
     y_vals = [entry[1] for entry in data_dict]
+    fig_title = f'{fig_title}: {data_source}'
 
     fig, axes = plt.subplots(figsize=(fig_width, fig_height), facecolor='black')
     box_plot = axes.boxplot(y_vals, patch_artist=True)
@@ -91,9 +92,14 @@ def plot_model_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: s
 
     fig.tight_layout()
 
-    save_dir = os.path.join(DATA_DIR, 'metric_plots')
+    save_dir = os.path.join(DATA_DIR, 'metric_plots', data_source)
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
+
+    fig_title = fig_title.replace(' ', '_')
+    fig_title = fig_title.replace(':', '_')
+    plot_fname = os.path.join(save_dir, f"{fig_title}.png")
+
     plot_fname = os.path.join(save_dir, f"{fig_title.replace(' ', '_')}.png")
     plt.savefig(plot_fname)
     plt.close()
@@ -192,6 +198,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
+            data_source=self.data_source,
             fig_title='Train time vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Train time (s)'
@@ -209,6 +216,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
+            data_source=self.data_source,
             fig_title='Evaluation time vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Evaluation time (s)'
@@ -226,6 +234,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
+            data_source=self.data_source,
             fig_title='Prediction time per image vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Prediction time per image (s)'
@@ -243,6 +252,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
+            data_source=self.data_source,
             fig_title='Test accuracy vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Test accuracy (%)'
@@ -272,7 +282,7 @@ class ModelPool:
         model_id_list = self.get_model_ids()
         heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{self.data_source}')
         subject_names = sorted([
-            subject_dir.split('_')[-1]
+            '_'.join(subject_dir.split('_')[1:])
             for subject_dir in os.listdir(heatmap_dir)
             if os.path.isdir(os.path.join(heatmap_dir, subject_dir))
         ])
@@ -300,7 +310,7 @@ def main(margs):
     duration_list = ['0.20', '0.40', '0.60', '0.80', '1.00']
     interpolation_list = margs.get('interpolation', ['LINEAR', 'QUADRATIC', 'CUBIC'])
     num_epochs = margs.get('num_epochs', 20)
-    batch_size = margs.get('batch_size', 64)
+    batch_size = margs.get('batch_size', 16)
     learning_rate = margs.get('learning_rate', 1e-4)
     img_width = margs.get('img_width', 224)
     img_height = margs.get('img_height', 224)
@@ -339,7 +349,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--num_epochs', type=int, default=200,
                         help='maximum number of epochs over which to train the model')
-    parser.add_argument('--batch_size', type=int, default=32,
+    parser.add_argument('--batch_size', type=int, default=16,
                         help='size of a training batch')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='learning rate to use to train the model')
