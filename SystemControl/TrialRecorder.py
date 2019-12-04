@@ -21,9 +21,6 @@ from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.LiveDataSource import MotorAction
 from SystemControl.utils.ObserverObservable import Observer
 
-matplotlib.use('TkAgg')
-style.use('ggplot')
-
 
 class TrialRecorder(Observer):
 
@@ -49,6 +46,9 @@ class TrialRecorder(Observer):
         self.height_scale = y_windows_scale
         self._update_delay = 10
 
+        matplotlib.use('TkAgg')
+        style.use('ggplot')
+
         self._fig = plt.figure(facecolor='black')
         self.__position_fig()
 
@@ -61,6 +61,7 @@ class TrialRecorder(Observer):
 
         self.start_time = -1
         self.end_time = -1
+        self.run_time = -1
         return
 
     def __position_fig(self):
@@ -101,7 +102,10 @@ class TrialRecorder(Observer):
                     # print(f'data: {update_data}')
                 elif update_type == 'event':
                     update_event = update_message.get('event', None)
-                    print(f'event: {update_event}')
+                    curr_time = time.time()
+                    d_time = curr_time - self.start_time
+                    eta = self.run_time - d_time
+                    print(f'event: {update_event}, elapsed: {d_time:0.4f}, eta: {eta:0.4f}')
                     self._action_queue.put(update_event)
 
     def run(self, run_time: float):
@@ -109,6 +113,8 @@ class TrialRecorder(Observer):
         t.daemon = True
         t.start()
         self.start_time = time.time()
+        self.run_time = run_time
+        self.data_source.set_recording(True)
         self.run_animation()
         return
 
@@ -116,15 +122,14 @@ class TrialRecorder(Observer):
         self.ani = animation.FuncAnimation(
             self._fig, self.update_artists, init_func=self.__init_plot, interval=self._update_delay, blit=True
         )
-
         plt.show()
         return
 
     def end_trial(self):
         self.end_time = time.time()
+        self.data_source.set_recording(False)
         self.ani.event_source.stop()
-        plt.close()
-        self.data_source.save_data(start_time=self.start_time, end_time=self.end_time)
+        plt.close()  # FIXME closes due to raising exception
         return
 
     def update_artists(self, update_arg):
@@ -144,7 +149,7 @@ def main(margs):
     ################################################
     record_length = margs.get('record_length', 720)
     current_subject = margs.get('subject_name', 'random')
-    trial_type = margs.get('session_type', 'motor_imagery')
+    trial_type = margs.get('session_type', 'motor_imagery_right_left')
     generate_delay = margs.get('stimulus_delay', 5)
     jitter_generator = margs.get('jitter', 0.2)
     ################################################
@@ -158,8 +163,7 @@ def main(margs):
     udp_client = UdpClient()
     data_source = LiveDataSource(
         subject=current_subject, trial_type=trial_type,
-        subscriber_list=[stimulus_generator, udp_client],
-        save_method=save_method
+        subscriber_list=[stimulus_generator, udp_client]
     )
 
     trial_recorder = TrialRecorder(
@@ -169,6 +173,7 @@ def main(margs):
     udp_client.run()
     sleep(1)
     trial_recorder.run(record_length)
+    data_source.save_data(start_time=0, end_time=-1)
     return
 
 
@@ -178,7 +183,7 @@ if __name__ == '__main__':
                         help='length (in seconds) of how long to record for the session')
     parser.add_argument('--subject_name', type=str, default='random',
                         help='Name of subject to use when saving this session')
-    parser.add_argument('--session_type', type=str, default='motor_imagery',
+    parser.add_argument('--session_type', type=str, default='motor_imagery_right_left',
                         help='type of trial to classify this session as')
     parser.add_argument('--stimulus_delay', type=int, default=5,
                         help='average time between generation of next stimulus')

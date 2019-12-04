@@ -50,10 +50,9 @@ def int_to_run_str(run_int):
 
 class PhysioDataSource(DataSource):
 
-    def __init__(self, subject: str = None, trial_type: str = None, log_level: str = 'CRITICAL',
-                 save_method: str = 'h5'):
+    def __init__(self, subject: str = None, trial_type: str = None, log_level: str = 'CRITICAL'):
         mne.set_log_level(log_level)  # DEBUG, INFO, WARNING, ERROR, or CRITICAL
-        DataSource.__init__(self, log_level=log_level, save_method=save_method)
+        DataSource.__init__(self, log_level=log_level)
 
         self.name = 'Physio'
         self.sample_freq = 160

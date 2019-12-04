@@ -13,9 +13,8 @@ from SystemControl.utils.ObserverObservable import Observer
 
 class LiveDataSource(DataSource, Observer):
 
-    def __init__(self, subject: str, trial_type: str, subscriber_list: list, log_level: str = 'CRITICAL',
-                 save_method: str = 'h5'):
-        DataSource.__init__(self, log_level, save_method=save_method)
+    def __init__(self, subject: str, trial_type: str, subscriber_list: list, log_level: str = 'CRITICAL'):
+        DataSource.__init__(self, log_level)
         Observer.__init__(self, subscriber_list)
 
         self.name = 'recorded'
@@ -38,6 +37,9 @@ class LiveDataSource(DataSource, Observer):
         )
         trial_entry_df = pd.DataFrame(data=[trial_info], columns=TrialInfoEntry._fields)
         self.trial_info_df = self.trial_info_df.append(trial_entry_df, ignore_index=True, sort=False)
+
+        self._record_samples = False
+        self.init_time = time.time()
         return
 
     def update(self, source, update_message):
@@ -55,17 +57,25 @@ class LiveDataSource(DataSource, Observer):
         return
 
     def __next_trial_name(self):
-        if len(self.trial_info_df.index) == 0:
+        prev_trials_df = self.trial_info_df.loc[self.trial_info_df['subject'] == self.ascended_being]
+        if len(prev_trials_df.index) == 0:
             return f'{1}'
 
-        prev_trial_names = sorted(self.trial_info_df['trial_name'].tolist())
-        return f'{prev_trial_names[-1] + 1}'
+        prev_trial_names = sorted([
+            int(each_trial)
+            for each_trial in prev_trials_df['trial_name'].tolist()
+        ])
+        last_trial_num = prev_trial_names[-1]
+        return f'{last_trial_num + 1}'
 
     def add_sample(self, sample_type, timestamp, sample_data):
+        if not self._record_samples:
+            return
+
         if sample_type == 'timeseries_filtered':
             trial_data_entry = TrialDataEntry(
                 entry_id=self.entry_id, idx=len(self.trial_data_df.index),
-                timestamp=timestamp, label=self._current_event.name,
+                timestamp=timestamp - self.init_time, label=self._current_event.name,
                 C3=sample_data[0], Cz=sample_data[1], C4=sample_data[2],
             )
             append_df = pd.DataFrame(data=[trial_data_entry], columns=TrialDataEntry._fields)
@@ -90,13 +100,17 @@ class LiveDataSource(DataSource, Observer):
         self.set_changed_message(change_message)
         return
 
+    def set_recording(self, turn_on: bool = True):
+        self._record_samples = turn_on
+        return
+
 
 def main():
     from SystemControl.OBciPython.UdpClient import UdpClient
     from SystemControl.StimulusGenerator import StimulusGenerator, GeneratorType
 
     subject_name = 'Tara'
-    trial_type = 'motor_imagery'
+    trial_type = 'motor_imagery_right_left'
 
     generate_delay = 1
     jitter_generator = 0.4

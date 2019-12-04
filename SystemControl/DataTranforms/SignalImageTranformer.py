@@ -20,8 +20,8 @@ from tqdm import tqdm
 
 from SystemControl import DATA_DIR
 from SystemControl.DataSource import DataSource
-from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
-from utils.Misc import find_files_by_name
+from SystemControl.DataSource.RecordedDataSource import RecordedDataSource
+from SystemControl.utils.Misc import find_files_by_name
 
 
 class CMAP(Enum):
@@ -139,10 +139,9 @@ def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: 
     save_dir = os.path.join(DATA_DIR, 'timing_plots', subject_name)
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
+    fig_title = fig_title.replace(' ', '_')
+    fig_title = fig_title.replace(':', '_')
     plot_fname = os.path.join(save_dir, f"{fig_title}.png")
-
-    plot_fname = plot_fname.replace(' ', '_')
-    plot_fname = plot_fname.replace(':', '_')
 
     plt.savefig(plot_fname)
     plt.close()
@@ -177,10 +176,9 @@ def plot_size_scatter(data_dict: dict, fig_title: str, x_title: str, y_title: st
     save_dir = os.path.join(DATA_DIR, 'dataset_size_plots')
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
+    fig_title = fig_title.replace(' ', '_')
+    fig_title = fig_title.replace(':', '_')
     plot_fname = os.path.join(save_dir, f"{fig_title}.png")
-
-    plot_fname = plot_fname.replace(' ', '_')
-    plot_fname = plot_fname.replace(':', '_')
 
     plt.savefig(plot_fname)
     plt.close()
@@ -261,9 +259,10 @@ class DataTransformer:
         }
 
         print(f'Using a single process to compute {len(data_iter)} images')
+        base_desc = f'Computing images: length: {self.window_length:0.2f}, spacing: {window_overlap}'
         pbar = tqdm(
             total=len(data_iter),
-            desc=f'Computing images: length: {self.window_length:0.2f}, spacing: {window_overlap}',
+            desc=base_desc,
             file=sys.stdout
         )
         # todo make multiprocess
@@ -271,24 +270,30 @@ class DataTransformer:
         for interp_type in Interpolation:
             time_dict[interp_type.name] = []
         for window in data_iter:
-            window_label_str = window['label'].value_counts().idxmax()
-            window_idx = window['idx'].iloc[0]
-            for interp_type in Interpolation:
+            pbar.set_description(f'{base_desc}:{len(window)}')
+            try:
+                window_idx = window['idx'].iloc[0]
+                window_label_str = window['label'].value_counts().idxmax()
                 img_id = build_img_id(self.window_dir, window_label_str)
-                heatmap_fname = build_heatmap_fname(
-                    self.window_dir, interp_type.name, img_id, window_idx, window_label_str
-                )
-                if not os.path.isfile(heatmap_fname):
-                    start_time = time.time()
-                    cv_image = self.heatmap_from_window(window, interp_type)
-                    end_time = time.time()
-                    delta_time = end_time - start_time
-                    time_dict[interp_type.name].append(delta_time)
-                    time_dict['image_count'] += 1
-                    img_entry = {"idx": window_idx, "event": window_label_str, "image": cv_image}
-                    img_lists[interp_type.name].append(img_entry)
-                    if save_image:
-                        save_heatmap(cv_image, heatmap_fname)
+                for interp_type in Interpolation:
+                    heatmap_fname = build_heatmap_fname(
+                        self.window_dir, interp_type.name, img_id, window_idx, window_label_str
+                    )
+                    if not os.path.isfile(heatmap_fname):
+                        start_time = time.time()
+                        cv_image = self.heatmap_from_window(window, interp_type)
+                        end_time = time.time()
+                        delta_time = end_time - start_time
+                        time_dict[interp_type.name].append(delta_time)
+                        time_dict['image_count'] += 1
+                        img_entry = {"idx": window_idx, "event": window_label_str, "image": cv_image}
+                        img_lists[interp_type.name].append(img_entry)
+                        if save_image:
+                            save_heatmap(cv_image, heatmap_fname)
+            except ValueError as ve:
+                print(f'Error occurred while processing window:\n\t{ve}')
+            except IndexError as ie:
+                print(f'Error occurred while processing window:\n\t{ie}')
             pbar.update(1)
         pbar.close()
 
@@ -371,12 +376,10 @@ def main():
     ############################################
     trial_type = 'motor_imagery_right_left'
     num_subjects = -1
-    subject_name = 'flat'
-    save_method = 'h5'
+    save_method = 'csv'
     ############################################
-
-    data_source = PhysioDataSource(subject=None, trial_type=trial_type, save_method=save_method)
-    # data_source = RecordedDataSource(subject=subject_name, trial_type=trial_type)
+    # data_source = PhysioDataSource(subject=None, trial_type=trial_type, save_method=save_method)
+    data_source = RecordedDataSource(subject=None, trial_type=trial_type, save_method=save_method)
     subject_list = sorted(data_source.subject_names)
     if num_subjects > 0:
         subject_list = subject_list[:num_subjects]
