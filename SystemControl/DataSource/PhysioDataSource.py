@@ -232,9 +232,8 @@ def main():
     :return:
     """
     display_generators = True
-    save_method = 'csv'
 
-    physio_ds = PhysioDataSource(save_method=save_method)
+    physio_ds = PhysioDataSource()
     print(physio_ds.subject_names)
 
     if display_generators:

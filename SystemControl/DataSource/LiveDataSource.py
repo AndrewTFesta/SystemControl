@@ -116,7 +116,6 @@ def main():
     jitter_generator = 0.4
     run_time = 5
     verbosity = 0
-    save_method = 'csv'
 
     stimulus_generator = StimulusGenerator(
         delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
@@ -124,8 +123,7 @@ def main():
     udp_client = UdpClient()
     live_ds = LiveDataSource(
         subject=subject_name, trial_type=trial_type,
-        subscriber_list=[stimulus_generator, udp_client],
-        save_method=save_method
+        subscriber_list=[stimulus_generator, udp_client]
     )
 
     stimulus_generator.run()

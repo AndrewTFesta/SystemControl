@@ -39,19 +39,17 @@ class RecordedDataSource(DataSource):
 
     def __find_subject_names(self):
         subject_names = pd.unique(self.trial_info_df['subject'])
-        if not subject_names:
+        if len(subject_names) is 0:
             raise RuntimeError(f'Unable to locate any subjects in trial info file:\n\t{self.trial_info_file}')
         return subject_names
 
 
 def main():
     display_generators = True
-    save_method = 'csv'
-
     subject = 'random_04'
     trial_type = 'motor_imagery_right_left'
 
-    rec_ds = RecordedDataSource(subject=subject, trial_type=trial_type, save_method=save_method)
+    rec_ds = RecordedDataSource(subject=subject, trial_type=trial_type)
     print(rec_ds.subject_names)
 
     if display_generators:

@@ -270,7 +270,7 @@ class DataTransformer:
         for interp_type in Interpolation:
             time_dict[interp_type.name] = []
         for window in data_iter:
-            pbar.set_description(f'{base_desc}:{len(window)}')
+            pbar.set_description(f'{base_desc}, num samples: {len(window)}')
             try:
                 window_idx = window['idx'].iloc[0]
                 window_label_str = window['label'].value_counts().idxmax()
@@ -376,10 +376,9 @@ def main():
     ############################################
     trial_type = 'motor_imagery_right_left'
     num_subjects = -1
-    save_method = 'csv'
     ############################################
-    # data_source = PhysioDataSource(subject=None, trial_type=trial_type, save_method=save_method)
-    data_source = RecordedDataSource(subject=None, trial_type=trial_type, save_method=save_method)
+    # data_source = PhysioDataSource(subject=None, trial_type=trial_type)
+    data_source = RecordedDataSource(subject=None, trial_type=trial_type)
     subject_list = sorted(data_source.subject_names)
     if num_subjects > 0:
         subject_list = subject_list[:num_subjects]
