@@ -63,7 +63,10 @@ class TfClassifier:
 
         self.dataset_directory = heatmap_dir
         self.model_id = self.build_model_id(train_params)
-        self.model_dir = os.path.join(DATA_DIR, 'models', self.model_type, f'{self.model_id}')
+        self.model_dir = os.path.join(
+            DATA_DIR, 'models', self.model_type,
+            train_params.data_source, f'{self.model_id}'
+        )
         self.train_params_fname = os.path.join(self.model_dir, f'train_params.json')
         self.epoch_metrics_fname = os.path.join(self.model_dir, 'epoch_metrics.csv')
         self.triain_eval_metrics_fname = os.path.join(self.model_dir, f'train_eval_metrics.json')

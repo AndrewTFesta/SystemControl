@@ -97,12 +97,14 @@ def sort_windows(window_entry):
     return window_len
 
 
-def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: str, subject_name: str,
+def plot_timing_boxplot(data_dict: dict, data_source: DataSource, fig_title: str,
+                        x_title: str, y_title: str, subject_name: str,
                         fig_width: int = 12, fig_height: int = 12):
     style.use('ggplot')
     data_dict = sorted(data_dict.items(), key=sort_windows)
     x_labels = [entry[0] for entry in data_dict]
     y_vals = [entry[1] for entry in data_dict]
+    fig_title = f'{fig_title}: {data_source.ascended_being}'
 
     fig, axes = plt.subplots(figsize=(fig_width, fig_height))
     box_plot = axes.boxplot(y_vals, patch_artist=True)
@@ -136,7 +138,7 @@ def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: 
 
     fig.tight_layout()
 
-    save_dir = os.path.join(DATA_DIR, 'timing_plots', subject_name)
+    save_dir = os.path.join(DATA_DIR, 'timing_plots', data_source.name, subject_name)
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
     fig_title = fig_title.replace(' ', '_')
@@ -148,12 +150,14 @@ def plot_timing_boxplot(data_dict: dict, fig_title: str, x_title: str, y_title: 
     return
 
 
-def plot_size_scatter(data_dict: dict, fig_title: str, x_title: str, y_title: str,
+def plot_size_scatter(data_dict: dict, data_source: DataSource, fig_title: str,
+                      x_title: str, y_title: str,
                       fig_width: int = 12, fig_height: int = 12):
     style.use('ggplot')
     data_dict = sorted(data_dict.items(), key=sort_windows)
     x_labels = [entry[0] for entry in data_dict]
     y_vals = [entry[1] for entry in data_dict]
+    fig_title = f'{fig_title}: {data_source.ascended_being}'
 
     fig, axes = plt.subplots(figsize=(fig_width, fig_height))
     axes.plot(x_labels, y_vals, 'g')
@@ -173,7 +177,7 @@ def plot_size_scatter(data_dict: dict, fig_title: str, x_title: str, y_title: st
     axes.set_ylabel(y_title, size=24)
 
     fig.tight_layout()
-    save_dir = os.path.join(DATA_DIR, 'dataset_size_plots')
+    save_dir = os.path.join(DATA_DIR, 'dataset_size_plots', data_source.name)
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
     fig_title = fig_title.replace(' ', '_')
@@ -323,10 +327,11 @@ class DataTransformer:
                 timing_windows_dict[interp_type.name][window_length] = timing_dict[interp_type.name]
 
         for interp_type in Interpolation:
-            plot_title = f'Time to compute {interp_type.name.lower()} signal images: {self.data_source.ascended_being}'
+            plot_title = f'Time to compute {interp_type.name.lower()} signal images'
             plot_timing_boxplot(
                 timing_windows_dict[interp_type.name],
                 fig_title=plot_title,
+                data_source=self.data_source,
                 x_title='Window length (s)',
                 y_title='Time per image (s)',
                 subject_name=self.data_source.ascended_being
@@ -342,10 +347,11 @@ class DataTransformer:
             window_length = os.path.basename(os.path.dirname(timing_fname)).split('_')[-1]
             window_count_dict[window_length] = timing_dict['image_count']
 
-        plot_title = f'Number of signal images: {self.data_source.ascended_being}'
+        plot_title = f'Number of signal images'
         plot_size_scatter(
             window_count_dict,
             fig_title=plot_title,
+            data_source=self.data_source,
             x_title='Window length (s)',
             y_title='Number of images (s)'
         )
@@ -371,7 +377,7 @@ class DataTransformer:
 
 
 def main():
-    compute_images = True
+    compute_images = False
     plot_timings = True
     ############################################
     trial_type = 'motor_imagery_right_left'

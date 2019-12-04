@@ -100,7 +100,6 @@ def plot_model_boxplot(data_dict: dict, data_source: str, fig_title: str, x_titl
     fig_title = fig_title.replace(':', '_')
     plot_fname = os.path.join(save_dir, f"{fig_title}.png")
 
-    plot_fname = os.path.join(save_dir, f"{fig_title.replace(' ', '_')}.png")
     plt.savefig(plot_fname)
     plt.close()
     return
@@ -108,11 +107,10 @@ def plot_model_boxplot(data_dict: dict, data_source: str, fig_title: str, x_titl
 
 class ModelPool:
 
-    def __init__(self, data_source: str, duration_list: list, train_parameters: TrainParameters):
-        self.data_source = data_source
+    def __init__(self, duration_list: list, train_parameters: TrainParameters):
         self.duration_list = duration_list
         self.train_parameters = train_parameters
-        self.base_model_dir = os.path.join(DATA_DIR, 'models')
+        self.base_model_dir = os.path.join(DATA_DIR, 'models', 'cnn', train_parameters.data_source)
         self.model_dirs = self.build_model_metainfo()
         self.model_metrics = {}
 
@@ -130,7 +128,7 @@ class ModelPool:
             model_id = os.path.basename(model_dir)
             model_ds = model_id.split('_')[0]
 
-            if model_ds == self.data_source and self.__validate_model_dir(model_dir):
+            if model_ds == self.train_parameters.data_source and self.__validate_model_dir(model_dir):
                 model_info_list.append(model_dir)
         end_time = time.time()
         print(f'Time to find trained models: {end_time - start_time:0.4f}')
@@ -165,7 +163,7 @@ class ModelPool:
             model_subject = model_id_parts[1]
             model_window_str = str(model_id_parts[-3])
 
-            if model_ds == self.data_source:
+            if model_ds == self.train_parameters.data_source:
                 try:
                     with open(eval_file, 'r+') as metric_file:
                         metric_data = json.load(metric_file)
@@ -198,7 +196,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
-            data_source=self.data_source,
+            data_source=self.train_parameters.data_source,
             fig_title='Train time vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Train time (s)'
@@ -216,7 +214,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
-            data_source=self.data_source,
+            data_source=self.train_parameters.data_source,
             fig_title='Evaluation time vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Evaluation time (s)'
@@ -234,7 +232,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
-            data_source=self.data_source,
+            data_source=self.train_parameters.data_source,
             fig_title='Prediction time per image vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Prediction time per image (s)'
@@ -252,7 +250,7 @@ class ModelPool:
 
         plot_model_boxplot(
             data_dict=data,
-            data_source=self.data_source,
+            data_source=self.train_parameters.data_source,
             fig_title='Test accuracy vs Window lengths',
             x_title='Window lengths (s)',
             y_title='Test accuracy (%)'
@@ -280,7 +278,7 @@ class ModelPool:
             duration_combinations.extend(list(combinations(self.duration_list, chose_num)))
 
         model_id_list = self.get_model_ids()
-        heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{self.data_source}')
+        heatmap_dir = os.path.join(DATA_DIR, 'heatmaps', f'data_source_{self.train_parameters.data_source}')
         subject_names = sorted([
             '_'.join(subject_dir.split('_')[1:])
             for subject_dir in os.listdir(heatmap_dir)
@@ -292,7 +290,8 @@ class ModelPool:
                 if not self._keep_training:
                     return
                 each_train_param = self.train_parameters._replace(
-                    data_source=self.data_source, chosen_being=each_subject, window_lengths=each_duration_list
+                    chosen_being=each_subject,
+                    window_lengths=each_duration_list
                 )
                 model_id = TfClassifier.build_model_id(each_train_param)
                 if model_id not in model_id_list:
@@ -315,14 +314,15 @@ def main(margs):
     img_width = margs.get('img_width', 224)
     img_height = margs.get('img_height', 224)
     verbosity = margs.get('verbosity', 1)
+    ###############################################################################
     train_params = TrainParameters(
-        data_source=None, chosen_being=None, window_lengths=None,
+        data_source=ds_name, chosen_being=None, window_lengths=None,
         interpolation_list=interpolation_list, target_column=target_column,
         img_width=img_width, img_height=img_height, learning_rate=learning_rate,
         batch_size=batch_size, num_epochs=num_epochs
     )
 
-    model_pool = ModelPool(data_source=ds_name, duration_list=duration_list, train_parameters=train_params)
+    model_pool = ModelPool(duration_list=duration_list, train_parameters=train_params)
     # model_pool.train_missing_models(verbosity=verbosity)
     model_pool.build_model_train_eval_metrics()
     model_pool.plot_metrics()
