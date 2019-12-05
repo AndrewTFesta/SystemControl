@@ -62,6 +62,8 @@ class TrialRecorder(Observer):
         self.start_time = -1
         self.end_time = -1
         self.run_time = -1
+        self.sample_rate_counter = 0
+        self.sample_rate_lock = threading.Lock()
         return
 
     def __position_fig(self):
@@ -95,17 +97,24 @@ class TrialRecorder(Observer):
         if source in self.subscriptions:
             if source.__class__.__name__ == self.data_source_name:
                 update_type = update_message.get('type', None)
-                update_time = update_message.get('time', None)
 
                 if update_type == 'sample':
                     update_data = update_message.get('data', None)
-                    # print(f'data: {update_data}')
+                    with self.sample_rate_lock:
+                        self.sample_rate_counter += 1
                 elif update_type == 'event':
                     update_event = update_message.get('event', None)
                     curr_time = time.time()
                     d_time = curr_time - self.start_time
                     eta = self.run_time - d_time
-                    print(f'event: {update_event}, elapsed: {d_time:0.4f}, eta: {eta:0.4f}')
+                    with self.sample_rate_lock:
+                        sample_rate = self.sample_rate_counter / d_time
+                        print(f'event: {update_event}\n'
+                              f'\tnum samples: {self.sample_rate_counter}\n'
+                              f'\tsample rate: {sample_rate}\n'
+                              f'\telapsed: {d_time:0.4f}\n'
+                              f'\teta: {eta:0.4f}')
+                        # self.sample_rate_counter = 0
                     self._action_queue.put(update_event)
 
     def run(self, run_time: float):
@@ -147,7 +156,7 @@ def main(margs):
     from SystemControl.StimulusGenerator import StimulusGenerator, GeneratorType
     from SystemControl.DataSource.LiveDataSource import LiveDataSource
     ################################################
-    record_length = margs.get('record_length', 120)
+    record_length = margs.get('record_length', 20)
     current_subject = margs.get('subject_name', 'random')
     trial_type = margs.get('session_type', 'motor_imagery_right_left')
     generate_delay = margs.get('stimulus_delay', 5)
@@ -157,7 +166,7 @@ def main(margs):
     ################################################
 
     stimulus_generator = StimulusGenerator(
-        delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
+        delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.RANDOM, verbosity=verbosity
     )
     udp_client = UdpClient()
     data_source = LiveDataSource(
@@ -172,6 +181,12 @@ def main(margs):
     udp_client.run()
     sleep(1)
     trial_recorder.run(record_length)
+
+    # trial_samples = data_source.get_trial_samples()
+    # # noinspection PyTypeChecker
+    # num_samples = len(trial_samples.index)
+    # print(f'Total number of samples: {num_samples}')
+    # print(f'Total sample rate: {num_samples / record_length}')
     data_source.save_data(start_time=0, end_time=-1)
     return
 

@@ -22,7 +22,7 @@ def generate_csp_dataset(subject: int):
     tmin, tmax = -1., 4.
     event_id = dict(hands=2, feet=3)
     subject = subject  # todo check for each subject
-    runs = [6, 10, 14]  # motor imagery: hands vs feet
+    runs = [4, 8, 12]  # motor imagery: hands vs feet
 
     raw_fnames = eegbci.load_data(subject, runs)
     raw = concatenate_raws([read_raw_edf(f, preload=True) for f in raw_fnames])

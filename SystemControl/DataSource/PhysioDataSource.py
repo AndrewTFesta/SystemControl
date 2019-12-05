@@ -214,12 +214,16 @@ class PhysioDataSource(DataSource):
             return True
 
         print('Validating dataset')
-        if not os.path.isfile(self.trial_info_file):
-            print(f'Unable to locate meta file describing this datasource: {self.trial_info_file}')
+        if not os.path.isfile(self.trial_info_file['csv']) and not os.path.isfile(self.trial_info_file['h5']):
+            print(f'Unable to locate meta file describing this datasource:\n'
+                  f'\t{self.trial_info_file["csv"]}\n'
+                  f'\t{self.trial_info_file["h5"]}')
             return False
 
-        if not os.path.isfile(self.trial_data_file):
-            print(f'Unable to locate data file containing the trial samples: {self.trial_data_file}')
+        if not os.path.isfile(self.trial_data_file['csv']) and not os.path.isfile(self.trial_data_file['h5']):
+            print(f'Unable to locate data file containing the trial samples:\n'
+                  f'\t{self.trial_data_file["csv"]}\n'
+                  f'\t{self.trial_data_file["h5"]}')
             return False
 
         self._validated = True

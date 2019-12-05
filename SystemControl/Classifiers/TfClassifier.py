@@ -385,6 +385,7 @@ class TfClassifier:
         train_event_counts = pd.Series(self._data_splits['train']['labels']).value_counts()
         val_event_counts = pd.Series(self._data_splits['validation']['labels']).value_counts()
         test_event_counts = pd.Series(self._data_splits['test']['labels']).value_counts()
+        total_event_counts = train_event_counts + val_event_counts + test_event_counts
 
         train_img_shape = self._data_splits['train']['images'].shape
         val_img_shape = self._data_splits['validation']['images'].shape
@@ -404,6 +405,8 @@ class TfClassifier:
         print(f'Chosen being: {self._train_params.chosen_being}')
         print(f'Number of interpolation types: {len(self._train_params.interpolation_list)}')
         print(f'\t{", ".join(self._train_params.interpolation_list)}')
+        print(f'Window lengths: {len(self._train_params.window_lengths)}')
+        print(f'\t{", ".join(self._train_params.window_lengths)}')
         print(f'Number of classes: {len(self.class_names)}')
         print(f'\t{", ".join(self.class_names)}')
         print(f'Number of entries in dataset: {total_count}')
@@ -422,6 +425,12 @@ class TfClassifier:
         print('=====================================================================')
         print(f'Number of test images: {num_test_images}')
         for event_idx, event_count in test_event_counts.iteritems():
+            print(f'\t{self.class_names[event_idx]}: {event_count} '
+                  f'({(event_count * 100) / num_test_labels:0.4f} %)')
+        print()
+        print('=====================================================================')
+        print(f'Class distribution')
+        for event_idx, event_count in total_event_counts.iteritems():
             print(f'\t{self.class_names[event_idx]}: {event_count} '
                   f'({(event_count * 100) / num_test_labels:0.4f} %)')
         print()
@@ -567,10 +576,10 @@ class TfClassifier:
 
 
 def main(margs):
-    display_dataset = False
+    display_dataset = True
     display_samples = False
-    display_metrics = True
-    display_train_history = True
+    display_metrics = False
+    display_train_history = False
     display_model = False
     #############################################
     ds_name = margs.get('data_source', 'Physio')
@@ -600,7 +609,7 @@ def main(margs):
         verbosity=verbosity,
     )
 
-    tf_classifier.train_and_evaluate()
+    # tf_classifier.train_and_evaluate()
 
     if display_dataset:
         tf_classifier.display_dataset()
@@ -627,7 +636,7 @@ if __name__ == '__main__':
                         help='Overwrites any previously trained model that was trained using the specified parameters')
 
     parser.add_argument('--duration', type=str, nargs='+', default=['0.20'],
-                        choices=['0.20', '0.40', '0.60', '0.8', '1.00'],
+                        choices=['0.20', '0.40', '0.60', '0.80', '1.00'],
                         help='list of window sizes to use when training the model')
     parser.add_argument('--interpolation', type=str, nargs='+', default=['LINEAR', 'QUADRATIC', 'CUBIC'],
                         choices=['LINEAR', 'QUADRATIC', 'CUBIC'],

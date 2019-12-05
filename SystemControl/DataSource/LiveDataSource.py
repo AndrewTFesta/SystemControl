@@ -42,6 +42,10 @@ class LiveDataSource(DataSource, Observer):
         self.init_time = time.time()
         return
 
+    def get_trial_samples(self):
+        trial_samples = self.trial_data_df.loc[self.trial_data_df['entry_id'] == self.entry_id]
+        return trial_samples
+
     def update(self, source, update_message):
         if source in self.subscriptions:
             if source.__class__.__name__ == 'UdpClient':

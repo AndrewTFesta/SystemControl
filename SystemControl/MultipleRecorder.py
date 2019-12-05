@@ -8,7 +8,7 @@ from SystemControl import TrialRecorder
 
 
 def main():
-    rec_type = 'disconnected'
+    rec_type = 'main'
     mult_rec_args = {
         'record_length': 120,
         'subject_name': None,
@@ -28,12 +28,12 @@ def main():
                 rec_proc = mp.Process(target=TrialRecorder.main, args=(mult_rec_args,))
                 rec_proc.start()
                 rec_proc.join()
-    elif rec_type is 'random':
+    else:
         ################################################
         trial_count_range = range(1, 6)
         ################################################
         for trial_count in trial_count_range:
-            mult_rec_args['subject_name'] = 'random'
+            mult_rec_args['subject_name'] = rec_type
             rec_proc = mp.Process(target=TrialRecorder.main, args=(mult_rec_args,))
             rec_proc.start()
             rec_proc.join()

@@ -20,6 +20,7 @@ from tqdm import tqdm
 
 from SystemControl import DATA_DIR
 from SystemControl.DataSource import DataSource
+from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
 from SystemControl.DataSource.RecordedDataSource import RecordedDataSource
 from SystemControl.utils.Misc import find_files_by_name
 
@@ -377,20 +378,21 @@ class DataTransformer:
 
 
 def main():
-    compute_images = False
+    compute_images = True
     plot_timings = True
     ############################################
     trial_type = 'motor_imagery_right_left'
     num_subjects = -1
     ############################################
-    # data_source = PhysioDataSource(subject=None, trial_type=trial_type)
-    data_source = RecordedDataSource(subject=None, trial_type=trial_type)
+    data_source = PhysioDataSource(subject=None, trial_type=trial_type)
+    # data_source = RecordedDataSource(subject=None, trial_type=trial_type)
     subject_list = sorted(data_source.subject_names)
     if num_subjects > 0:
         subject_list = subject_list[:num_subjects]
     window_length_list = [0.2 * idx for idx in range(1, 6)]  # length in seconds
     num_rows = 200
 
+    subject_list = ['S001']
     data_transformer = DataTransformer(data_source)
     data_transformer.set_num_rows(num_rows)
 
