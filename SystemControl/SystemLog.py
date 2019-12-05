@@ -4,8 +4,8 @@ from enum import Enum, auto
 from pathlib import Path
 from threading import Lock
 
-from utils.utilities import split_paragraph, build_dir_path
 from SystemControl import LOG_DIR
+from SystemControl.utils.Misc import build_dir_path, split_paragraph
 
 
 class SystemLogLevel(Enum):
