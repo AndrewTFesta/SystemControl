@@ -182,11 +182,11 @@ def main(margs):
     sleep(1)
     trial_recorder.run(record_length)
 
-    # trial_samples = data_source.get_trial_samples()
-    # # noinspection PyTypeChecker
-    # num_samples = len(trial_samples.index)
-    # print(f'Total number of samples: {num_samples}')
-    # print(f'Total sample rate: {num_samples / record_length}')
+    trial_samples = data_source.get_trial_samples()
+    # noinspection PyTypeChecker
+    num_samples = len(trial_samples.index)
+    print(f'Total number of samples: {num_samples}')
+    print(f'Total sample rate: {num_samples / record_length}')
     data_source.save_data(start_time=0, end_time=-1)
     return
 

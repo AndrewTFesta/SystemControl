@@ -102,7 +102,7 @@ def main():
         delay=generate_delay, jitter=jitter_generator, generator_type=GeneratorType.SEQUENTIAL, verbosity=verbosity
     )
     live_ds = LiveDataSource(
-        subscriber_list=[stimulus_generator], subject=subject_name, trial_type=trial_type, save_method='csv'
+        subscriber_list=[stimulus_generator], subject=subject_name, trial_type=trial_type
     )
 
     stimulus_generator.run()

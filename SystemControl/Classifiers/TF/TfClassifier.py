@@ -608,8 +608,7 @@ def main(margs):
         force_overwrite=force_overwrite,
         verbosity=verbosity,
     )
-
-    # tf_classifier.train_and_evaluate()
+    tf_classifier.train_and_evaluate()
 
     if display_dataset:
         tf_classifier.display_dataset()

@@ -273,6 +273,8 @@ def main():
     # device.send_msg(START_IMPEDANCE)
     # time.sleep(1)
     # device.send_msg(STOP_IMPEDANCE)
+    time.sleep(1)
+    device.send_msg(START_STREAM)
     time.sleep(5)
     print('Cleaning up all resources...')
     device.clean_up()

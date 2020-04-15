@@ -1,3 +1,4 @@
+Pillow
 tensorboard
 pyvips
 pydot

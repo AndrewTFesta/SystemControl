@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib import style
 
 from SystemControl import DATA_DIR
-from SystemControl.Classifiers.TfClassifier import TrainParameters, TfClassifier
+from SystemControl.Classifiers.TF.TfClassifier import TrainParameters, TfClassifier
 from SystemControl.utils.Misc import find_files_by_name
 
 
