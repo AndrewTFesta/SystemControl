@@ -5,7 +5,7 @@ This code is in support of the research performed for the thesis requirement for
 
 - [Pre-proposal](docs/reports/Thesis_Pre_Proposal__Data_Representation_for_Motor_Imagery_Classification.pdf)
 - [Proposal](docs/reports/Thesis_Proposal__Data_Representation_for_Motor_Imagery_Classification.pdf)
-- [Thesis Report](docs/reports/Thesis__Data_Representation_for_Motor_Imagery_Classification.pdf)
+- [Thesis Report](docs/reports/Thesis__Data_Representation_for_Motor_Imager-+y_Classification.pdf)
 - [Defense Presentation](docs/reports/Defense.pdf)
 - [Signature Page](docs/reports/thesis_signature_page.pdf)
 
@@ -89,3 +89,81 @@ While it is perfectly possible to train the models on the CPU, it is substantial
 ### CUDA
 
 ### tensorflow-gpu
+
+# Next Steps
+
+While the research performed proves promising for this form of data representation for motor imagery classification, the work herein lays the groundwork for future development. Significant work remains in order to viably use it as a means of input for an effective and real-time BCI system. Part of this works deals not with the software and algorithmic approach, but in improving the hardware and the data acquisition capabilities of the system. In general, the next steps can be broken down into two focus areas: hardware progression and algorithmic development. While both are important as to the development of BCI systems, only one step should be taken at a time in order to ensure a solid base for development. The following suggestions for development first seek to address the issue of data acquisition and then enhance the efficacy of the data representation for more specialized approaches.
+
+## Hardware Development
+
+The hardware boards for performing EEG collection have come a long way in the past decade. However, cost is often directly tied to spatial resolution. For the task of motor-imagery, high spatial resolution is not as important a factor, but it is still a desired characteristic of any BCI or EEG system.
+
+### Custom EEG Board
+
+Creating a custom board for data acquisition is meant to serve two purposes. The first is an attempt to reduce the cost and improve upon the spatial resolution. The second attempts to increase the control offered by creating the system from scratch. While not a trivial task, it is made somewhat easier by the increase of open-source projects in the space. The [circuit schematic](https://github.com/OpenBCI/Ganglion_Hardware_Design_Files/blob/master/Ganglion_SCH.pdf) for the Ganglion is open-sourced by OpenBCI and has an active community aiding in its development. This is possible as the main business model of OpenBCI seems to not be focused with the intellectual property of the boards, but rather the convenience of having them build and provide the board with minimal oversight required of the hobbyist. Unfortunately, active work on the hardware of the board seems to have stalled.
+
+### Active Electrodes
+
+Beyond creating a board that offers at least comparable initial performance to the Ganglion or the Cyton, the electrodes used for data acquisition could theoretically be greatly improved by using active electrodes versus the passive electrodes provided when purchasing a board or headset from OpenBCI. Where passive electrodes essentially act as simple probes measuring the electrical potential and sending this signal to the board for amplification, active electrodes perform a level of amplification at the point of collection. This effectively increases the signal-to-noise ratio of the data as the effect of ambient and environmental noise is less pronounced with respect to the signal after having traveled along the wire of the electrode to the board.
+
+## Algorithmic Development
+
+Where the hardware aspect of development looks to record cleaner and more precise data more directly, algorithmic techniques can be explored which may be able to address issues ranging from data cleaning, exploration, classification, and testing.
+
+### Data Cleaning and Noise Isolation
+
+A point that cannot be emphasized enough is there is no substitute for clean data. The age-old adage is once again proven correct: garbage in means garbage out. This holds particularly true in domains where the data is inherently dirty and difficult to work with. While ideally this data would be collected as cleanly as possible, post-processing is possible which is able to isolate the signal from the noise after it has been recorded. The work of this research took several steps to perform this data cleaning, including filtering out specific frequency ranges; However, the issue of identifying artifacts in the data was not addressed.
+
+Normally, this task would be undertaken by a subject matter expert who would mark bad regions of the data stream for removal. Another approach is to consider that most EEG signals are non-Gaussian in nature, meaning that principal component analysis will likely not be an effective tool to separate the signals. Instead, it is possible to use independent component analysis to separate overlapping events, to remove line noise from the data, and to automatically detect artifacts that may be present due to muscle movement.
+
+### Test Environment}
+
+%%
+
+### Time-sequence Classification
+
+ When constructing the images, the time-series nature of the problem was handled by concatenating multiple samples together in order to form a 2D image of a signal over time. A better approach may be to use an architecture that is particularly suited for timeseries based classification, such as a recurrent neural network. While it may not prove more effective to use this other type of architecture for classification of these signals due to the increased difficulties in training such a network, it would provide additional insight into the strengths and weaknesses of the data representation, particularly with respect to the effect of the interpolation function and its ability to recreate the electromagnetic fields at play.
+
+### Field Reconstruction
+
+Taking a step back from the end result of a signal image, one of the strengths of the data representation is its ability to interpolate between discrete points in order to partially recreate the electromagnetic field produced by the brain. In the research conducted, only the $C3$, $CZ$, and $C4$ electrode positions were used. This allowed for the interpolation function to operate on the points as if they were on the same x-y coordinate plane due to the fact that these locations are next to each other laterally on the head. However, increasing the spatial resolution of the system breaks this lateral assumption. Remedying the situation only requires having the interpolation function operate on the points in 3D space rather than 2D space. The signal image then becomes more akin to a classic montage or band-plot representation employed by neuroscience domain experts. Feeding it to a classifier then either requires use of a recurrent convolutional neural network or altering the convolutional filter from a 2D filter to a 3D filter, both of which are readily supported by Tensorflow.
+
+# Code and Dataset Repositories
+
+Lists and briefly describes repositories containing code or datasets that may be useful when performing EEG research or attempting to build a brain-computer interface.
+
+## [OpenBCI](https://github.com/OpenBCI)
+
+OpenBCI open-sources all the hardware and software they develop. This GitHub profile contains multiple repositories containing documentation, guides, and code that can be used to aid in building and using their products.
+
+## [BCI Competition IV](http://www.bbci.de/competition/iv/)
+
+The BCI competition was developed to address the issue of high-quality free EEG datasets. It aims to provide a way for researchers and hobyists to validate their signal processing techniques and improve on existing classification techniques. The last dataset was released in 2006 and was featured at NeurIPS (NIPS) 2008.
+
+## [EEG Datasets](https://github.com/meagmohit/EEG-Datasets)
+
+This repository contains links to multiple datasets for many different applications of EEG recordings, including motor-imagery classification.
+
+# Neuroscience Learning Resources
+
+Various links that contain useful information for learning the neuroscience behind brain-controlled interfaces. The content of the earlier links tend to contain mainly theoretical explanations while the later links are more focused towards short guides, tutorials, and projects.
+
+## [The typical M/EEG workflow](https://mne.tools/stable/overview/cookbook.html)
+
+MNE is an open-source Python library for performing M/EEG data analysis. This page, specifically, details the common steps taken and covers the basic considerations that must be taken into account while performing such an analysis. Much of their guide is focused on use of their specific package, but the concepts can be readily applied outside of the framework as well.
+
+## [EEG: The Ultimate Guide](http://neurosky.com/biosensors/eeg-sensor/ultimate-guide-to-eeg/)
+
+Neurosky is another low-cost EEG option that is often used to build out BCI systems. This page details some of the background and basics regarding electroencephalography. In particular, it provides a brief overview of the history of the field and goes into some potential applications in which the technology can be applied.
+
+## [What is EEG (Electroencephalography) and How Does it Work?](https://imotions.com/blog/what-is-eeg/)
+
+IMotions is a purveyor of mid-range EEG headsets as well as resources aimed to help people learn what EEG is and how to use it. This page offers a brief overview of different brainwave patterns and how they can be interpreted from a neuroscience perspective.
+
+## [Reading Minds with Deep Learning](https://blog.floydhub.com/reading-minds-with-deep-learning)
+
+Samuel Lynn-Evans' guide on using convolutional neural networks is fairly thorough, both in terms of explaining the neuroscience behind interpreting brain-wave patterns as well as on how to use the neural network to classify the signals. It uses the [Grasp-and-lift dataset from Kaggle](https://www.kaggle.com/c/grasp-and-lift-eeg-detection/discussion/16479) and attempts to detect which hand is performing the action.
+
+## [Building a mind-controlled drone](https://gear.dev/building-a-mind-controlled-drone)
+
+Jon Gear's implementation of a drone shows how to use two different EEG headsets: the Cyton from OpenBCI and the Mindwave from Neurosky. The blog post walks through setting up a Parrot drone to be controlled by an EEG headset. It is written and described primarily in Javascript, but all the concepts are thoroughly explained. [The GitHub repository]((https://github.com/jongear/mindcraft)) also contains a set of slides and a video demonstrating how to get everything working.
