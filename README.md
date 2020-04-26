@@ -59,37 +59,6 @@ Part of the desired outcome for this research was to explore the ability to use 
 
 As the Physio dataset is the reference dataset, the method for manually collecting data seeks to emulate that process as much as possible. Specifically, there are several key decisions that this protocol copies from the creators of the Physio dataset. There are three prompts that are presented to the subject: 'stop', 'left', and 'right'. The subject was instructed to continue to imagine moving the hand that corresponds to the given prompt in the case of the latter two prompts. In the case of the 'stop' prompt, they were to relax and not imagine moving either hand. Both the EEG samples and the events were recorded, and a single sample (which is comprised of three values -- one from each electrode) is marked as the current event. An important thing to note is that this protocol follows the decision to record when the stimulus was presented rather than when the user reacted to the event.
 
-# Installation
-
-The project was developed and tested on a system running Windows 10. Most of the functionality should be platform independent, but this has not been verified.
-
-[comment]: # (Link to PyPi)
-[comment]: # (Entry points for setup.py)
-
-To install the project, clone this repo and run the `setup.py` script. This will make the `SystemControl` library available for import and install all required Python libraries, listed in the `requirements.txt` file. Currently, the `setup.py` file does not provide any entry points. All of the GUIs and utilities must be run explicitly.
-
-## External Dependencies
-
-There are several non-Python specific external dependencies that must be installed separately. These are listed below, along with instructions for install them on a Windows 10 machine.
-
-[comment]: # (installation guides for non-python dependencies)
-
-### vtk
-### pydot
-### graphviz
-### ffmpeg
-### [libvips](https://pypi.org/project/pyvips/)
-
-## Optional
-
-While it is perfectly possible to train the models on the CPU, it is substantially faster to use GPU support. This requires installing CUDA support along with `tensorflow-gpu`. The instructions for each are descirbed below.
-
-[comment]: # (installation guides for gpu support)
-
-### CUDA
-
-### tensorflow-gpu
-
 # Next Steps
 
 While the research performed proves promising for this form of data representation for motor imagery classification, the work herein lays the groundwork for future development. Significant work remains in order to viably use it as a means of input for an effective and real-time BCI system. Part of this works deals not with the software and algorithmic approach, but in improving the hardware and the data acquisition capabilities of the system. In general, the next steps can be broken down into two focus areas: hardware progression and algorithmic development. While both are important as to the development of BCI systems, only one step should be taken at a time in order to ensure a solid base for development. The following suggestions for development first seek to address the issue of data acquisition and then enhance the efficacy of the data representation for more specialized approaches.
@@ -116,7 +85,7 @@ A point that cannot be emphasized enough is there is no substitute for clean dat
 
 Normally, this task would be undertaken by a subject matter expert who would mark bad regions of the data stream for removal. Another approach is to consider that most EEG signals are non-Gaussian in nature, meaning that principal component analysis will likely not be an effective tool to separate the signals. Instead, it is possible to use independent component analysis to separate overlapping events, to remove line noise from the data, and to automatically detect artifacts that may be present due to muscle movement.
 
-### Test Environment}
+### Test Environment
 
 %%
 
