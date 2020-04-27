@@ -5,7 +5,7 @@ This code is in support of the research performed for the thesis requirement for
 
 - [Pre-proposal](docs/reports/Thesis_Pre_Proposal__Data_Representation_for_Motor_Imagery_Classification.pdf)
 - [Proposal](docs/reports/Thesis_Proposal__Data_Representation_for_Motor_Imagery_Classification.pdf)
-- [Thesis Report](docs/reports/Thesis__Data_Representation_for_Motor_Imager-+y_Classification.pdf)
+- [Thesis Report](docs/reports/Thesis__Data_Representation_for_Motor_Imagery_Classification.pdf)
 - [Defense Presentation](docs/reports/Defense.pdf)
 - [Signature Page](docs/reports/thesis_signature_page.pdf)
 
@@ -22,7 +22,7 @@ See the [LICENSE file](LICENSE) for license rights and limitations (MIT).
 - [Acknowledgements](#acknowledgements)
 - [Introduction](#introduction)
 - [Datasets](#datasets)
-    - [PhysioNet](#physionethttpsphysionetorgcontenteegmmidb100)
+    - [PhysioNet](#physionet)
     - [Manually Recorded](#manually-recorded)
 - [Next Steps](#next-steps)
     - [Hardware Development](#hardware-development)
