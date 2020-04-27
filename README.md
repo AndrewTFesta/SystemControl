@@ -112,10 +112,6 @@ A point that cannot be emphasized enough is there is no substitute for clean dat
 
 Normally, this task would be undertaken by a subject matter expert who would mark bad regions of the data stream for removal. Another approach is to consider that most EEG signals are non-Gaussian in nature, meaning that principal component analysis will likely not be an effective tool to separate the signals. Instead, it is possible to use independent component analysis to separate overlapping events, to remove line noise from the data, and to automatically detect artifacts that may be present due to muscle movement.
 
-### Test Environment
-
-%%
-
 ### Time-sequence Classification
 
  When constructing the images, the time-series nature of the problem was handled by concatenating multiple samples together in order to form a 2D image of a signal over time. A better approach may be to use an architecture that is particularly suited for timeseries based classification, such as a recurrent neural network. While it may not prove more effective to use this other type of architecture for classification of these signals due to the increased difficulties in training such a network, it would provide additional insight into the strengths and weaknesses of the data representation, particularly with respect to the effect of the interpolation function and its ability to recreate the electromagnetic fields at play.
