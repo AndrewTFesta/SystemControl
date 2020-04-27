@@ -15,6 +15,33 @@ The research was aimed at exploring the various ways in which the data represent
 
 See the [LICENSE file](LICENSE) for license rights and limitations (MIT).
 
+# Index
+
+- [Abstract](#abstract)
+- [Dedication](#dedication)
+- [Acknowledgements](#acknowledgements)
+- [Introduction](#introduction)
+- [Datasets](#datasets)
+    - [PhysioNet](#physionethttpsphysionetorgcontenteegmmidb100)
+    - [Manually Recorded](#manually-recorded)
+- [Next Steps](#next-steps)
+    - [Hardware Development](#hardware-development)
+        - [Custom EEG Board](#custom-eeg-board)
+        - [Active Electrodes](#active-electrodes)
+    - [Algorithmic Development](#algorithmic-development)
+        - [Data Cleaning and Noise Isolation](#data-cleaning-and-noise-isolation)
+        - [Field Reconstruction](#field-reconstruction)
+- [Code and Dataset Repositories](#code-and-dataset-repositories)
+    - [OpenBCI](#openbcihttpsgithubcomopenbci)
+    - [BCI Competition IV](#bci-competition-ivhttpwwwbbcidecompetitioniv)
+    - [EEG Datasets](#eeg-datasetshttpsgithubcommeagmohiteeg-datasets)
+- [Neuroscience Learning Resources](#neuroscience-learning-resources) 
+    - [The typical M/EEG workflow](#the-typical-meeg-workflowhttpsmnetoolsstableoverviewcookbookhtml)
+    - [EEG: The Ultimate Guide](#eeg-the-ultimate-guidehttpneuroskycombiosensorseeg-sensorultimate-guide-to-eeg)
+    - [What is EEG (Electroencephalography) and How Does it Work?](#what-is-eeg-electroencephalography-and-how-does-it-workhttpsimotionscomblogwhat-is-eeg)
+    - [Reading Minds with Deep Learning](#reading-minds-with-deep-learninghttpsblogfloydhubcomreading-minds-with-deep-learning)
+    - [Building a mind-controlled drone](#building-a-mind-controlled-dronehttpsgeardevbuilding-a-mind-controlled-drone)
+
 # Abstract
 
 While much progress has been made towards the advancement of brain-controlled interfaces (BCI), there remains an information gap between the various domains involved in progressing this area of research. Thus, this research seeks to address this gap through creation of a method of representing brainwave signals in a manner that is intuitive and easy to interpret for both neuroscientists and computer scientists. This method of data representation was evaluated on the ability of the model to accurately classify motor imagery events in a timely manner.
