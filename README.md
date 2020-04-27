@@ -32,15 +32,15 @@ See the [LICENSE file](LICENSE) for license rights and limitations (MIT).
         - [Data Cleaning and Noise Isolation](#data-cleaning-and-noise-isolation)
         - [Field Reconstruction](#field-reconstruction)
 - [Code and Dataset Repositories](#code-and-dataset-repositories)
-    - [OpenBCI](#openbcihttpsgithubcomopenbci)
-    - [BCI Competition IV](#bci-competition-ivhttpwwwbbcidecompetitioniv)
-    - [EEG Datasets](#eeg-datasetshttpsgithubcommeagmohiteeg-datasets)
+    - [OpenBCI](#openbci)
+    - [BCI Competition IV](#bci-competition-iv)
+    - [EEG Datasets](#eeg-datasets)
 - [Neuroscience Learning Resources](#neuroscience-learning-resources) 
-    - [The typical M/EEG workflow](#the-typical-meeg-workflowhttpsmnetoolsstableoverviewcookbookhtml)
-    - [EEG: The Ultimate Guide](#eeg-the-ultimate-guidehttpneuroskycombiosensorseeg-sensorultimate-guide-to-eeg)
-    - [What is EEG (Electroencephalography) and How Does it Work?](#what-is-eeg-electroencephalography-and-how-does-it-workhttpsimotionscomblogwhat-is-eeg)
-    - [Reading Minds with Deep Learning](#reading-minds-with-deep-learninghttpsblogfloydhubcomreading-minds-with-deep-learning)
-    - [Building a mind-controlled drone](#building-a-mind-controlled-dronehttpsgeardevbuilding-a-mind-controlled-drone)
+    - [The typical M/EEG workflow](#the-typical-meeg-workflow)
+    - [EEG: The Ultimate Guide](#eeg-the-ultimate-guide)
+    - [What is EEG (Electroencephalography) and How Does it Work?](#what-is-eeg-electroencephalography-and-how-does-it-work)
+    - [Reading Minds with Deep Learning](#reading-minds-with-deep-learning)
+    - [Building a mind-controlled drone](#building-a-mind-controlled-drone)
 
 # Abstract
 
