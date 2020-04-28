@@ -16,14 +16,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from Andrutil.MachineLearning import plot_confusion_matrix
+from Andrutil.Misc import filter_list_of_dicts, find_files_by_type
 from matplotlib import style
 from matplotlib.ticker import MaxNLocator
 from tensorflow import keras
 from tqdm import tqdm
 
 from SystemControl import DATA_DIR
-from SystemControl.utils.MachineLearning import split_data, plot_confusion_matrix
-from SystemControl.utils.Misc import filter_list_of_dicts, find_files_by_type
 
 TrainParameters = collections.namedtuple(
     'TrainParameters',

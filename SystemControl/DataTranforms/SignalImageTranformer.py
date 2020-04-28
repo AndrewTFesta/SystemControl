@@ -14,6 +14,7 @@ import matplotlib
 import matplotlib.cm
 import matplotlib.pyplot as plt
 import numpy as np
+from Andrutil.Misc import find_files_by_name
 from matplotlib import style
 from scipy.interpolate import interp1d
 from tqdm import tqdm
@@ -21,8 +22,6 @@ from tqdm import tqdm
 from SystemControl import DATA_DIR
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.PhysioDataSource import PhysioDataSource
-from SystemControl.DataSource.RecordedDataSource import RecordedDataSource
-from SystemControl.utils.Misc import find_files_by_name
 
 
 class CMAP(Enum):

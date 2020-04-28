@@ -5,10 +5,10 @@
 import time
 
 import pandas as pd
+from Andrutil.ObserverObservable import Observer
 
 from SystemControl.DataSource.DataSource import DataSource, build_entry_id, TrialInfoEntry, TrialDataEntry
 from SystemControl.StimulusGenerator import MotorAction
-from SystemControl.utils.ObserverObservable import Observer
 
 
 class LiveDataSource(DataSource, Observer):

@@ -13,13 +13,13 @@ import cv2
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+from Andrutil.ObserverObservable import Observer
 from matplotlib import style, animation
 from win32api import GetSystemMetrics
 
 from SystemControl import IMAGES_DIR
 from SystemControl.DataSource import DataSource
 from SystemControl.DataSource.LiveDataSource import MotorAction
-from SystemControl.utils.ObserverObservable import Observer
 
 
 class TrialRecorder(Observer):

@@ -8,7 +8,7 @@ version = '0.1'
 SOURCE_PACKAGE = os.path.split(__file__)[0]
 PROJECT_PATH = os.path.split(SOURCE_PACKAGE)[0]
 
-RESOURCES_DIR = os.path.join(SOURCE_PACKAGE, 'resources')
+RESOURCES_DIR = os.path.join(PROJECT_PATH, 'resources')
 IMAGES_DIR = os.path.join(RESOURCES_DIR, 'images')
 
 LOG_DIR = os.path.join(PROJECT_PATH, 'logs')

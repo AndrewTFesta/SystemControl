@@ -4,8 +4,10 @@ from enum import Enum, auto
 from pathlib import Path
 from threading import Lock
 
+from Andrutil.Misc import build_dir_path, split_paragraph
+
 from SystemControl import LOG_DIR
-from SystemControl.utils.Misc import build_dir_path, split_paragraph
+# from SystemControl.utils.Misc import build_dir_path, split_paragraph
 
 
 class SystemLogLevel(Enum):

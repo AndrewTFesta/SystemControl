@@ -13,11 +13,11 @@ from multiprocessing import Queue
 from signal import signal, SIGINT
 
 import matplotlib.pyplot as plt
+from Andrutil.Misc import find_files_by_name
 from matplotlib import style
 
 from SystemControl import DATA_DIR
 from SystemControl.Classifiers.TF.TfClassifier import TrainParameters, TfClassifier
-from SystemControl.utils.Misc import find_files_by_name
 
 
 def train_model(train_params, verbosity, save_queue):

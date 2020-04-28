@@ -9,8 +9,8 @@ import time
 from json import JSONDecodeError
 from time import sleep
 
-from SystemControl.utils.Misc import uv_to_volts
-from SystemControl.utils.ObserverObservable import Observable
+from Andrutil.Misc import uv_to_volts
+from Andrutil.ObserverObservable import Observable
 
 
 class UdpClient(Observable):
